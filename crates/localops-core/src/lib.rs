@@ -1,5 +1,7 @@
+pub mod bootstrap;
+
 use rusqlite::{Connection, OpenFlags};
-use std::path::Path;
+use std::{io, path::Path, time::SystemTimeError};
 use thiserror::Error;
 use uuid::Uuid;
 
@@ -11,6 +13,16 @@ pub enum CoreError {
     Database(#[from] rusqlite::Error),
     #[error("business name is required")]
     EmptyBusinessName,
+    #[error("application data directory is unavailable")]
+    AppDataDirectoryUnavailable,
+    #[error("filesystem error: {0}")]
+    Io(#[from] io::Error),
+    #[error("system clock error: {0}")]
+    Clock(#[from] SystemTimeError),
+    #[error("database integrity check failed: {0}")]
+    IntegrityCheckFailed(String),
+    #[error("backup verification failed: {0}")]
+    BackupVerificationFailed(String),
 }
 
 pub type Result<T> = std::result::Result<T, CoreError>;
