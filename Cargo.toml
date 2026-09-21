@@ -1,3 +1,6 @@
 [workspace]
 members = ["crates/localops-core"]
 resolver = "2"
+
+[workspace.dependencies]
+uuid = { version = "1.0", features = ["v7"] }
