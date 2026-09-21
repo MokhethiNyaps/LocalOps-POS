@@ -1,4 +1,5 @@
 pub mod bootstrap;
+pub mod business;
 
 use rusqlite::{Connection, OpenFlags};
 use std::{io, path::Path, time::SystemTimeError};
@@ -80,16 +81,6 @@ fn migrate(connection: &Connection) -> Result<()> {
     }
 }
 
-pub fn create_business(connection: &Connection, name: &str) -> Result<String> {
-    let name = name.trim();
-    if name.is_empty() {
-        return Err(CoreError::EmptyBusinessName);
-    }
-    let id = Uuid::now_v7().to_string();
-    connection.execute("INSERT INTO businesses(id,name) VALUES(?1,?2)", (&id, name))?;
-    Ok(id)
-}
-
 #[cfg(test)]
 mod tests {
     use super::*;
@@ -112,7 +103,7 @@ mod tests {
     #[test]
     fn business_uses_defaults_and_uuid_v7() {
         let db = open_memory_database().unwrap();
-        let id = create_business(&db, "Moko's Lifestyle Centre").unwrap();
+        let id = business::create_business(&db, "Moko's Lifestyle Centre").unwrap();
         assert_eq!(Uuid::parse_str(&id).unwrap().get_version_num(), 7);
         let values: (String, String) = db
             .query_row(
@@ -128,21 +119,21 @@ mod tests {
     fn rejects_empty_business_and_duplicate_department_name() {
         let db = open_memory_database().unwrap();
         assert!(matches!(
-            create_business(&db, "  "),
+            business::create_business(&db, "  "),
             Err(CoreError::EmptyBusinessName)
         ));
-        let business = create_business(&db, "LocalOps Test").unwrap();
+        let business_id = business::create_business(&db, "LocalOps Test").unwrap();
         let first = Uuid::now_v7().to_string();
         db.execute(
             "INSERT INTO departments(id,business_id,name) VALUES(?1,?2,'Bar')",
-            (&first, &business),
+            (&first, &business_id),
         )
         .unwrap();
         let second = Uuid::now_v7().to_string();
         assert!(
             db.execute(
                 "INSERT INTO departments(id,business_id,name) VALUES(?1,?2,'Bar')",
-                (&second, &business)
+                (&second, &business_id)
             )
             .is_err()
         );

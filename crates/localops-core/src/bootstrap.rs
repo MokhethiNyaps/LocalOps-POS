@@ -105,7 +105,7 @@ fn verify(
 #[cfg(test)]
 mod tests {
     use super::*;
-    use crate::create_business;
+    use crate::business::create_business;
     use tempfile::tempdir;
 
     #[test]
