@@ -2,6 +2,7 @@ pub mod bootstrap;
 pub mod business;
 pub mod department;
 pub mod location;
+pub mod terminal;
 
 use rusqlite::{Connection, OpenFlags};
 use std::{io, path::Path, time::SystemTimeError};
@@ -20,6 +21,10 @@ pub enum CoreError {
     EmptyDepartmentName,
     #[error("location name is required")]
     EmptyLocationName,
+    #[error("terminal name is required")]
+    EmptyTerminalName,
+    #[error("location not found")]
+    LocationNotFound,
     #[error("business not found")]
     BusinessNotFound,
     #[error("application data directory is unavailable")]

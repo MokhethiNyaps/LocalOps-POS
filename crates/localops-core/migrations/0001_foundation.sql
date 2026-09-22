@@ -60,18 +60,17 @@ CREATE UNIQUE INDEX uq_department_default_location ON department_locations(depar
 CREATE TABLE terminals (
   id TEXT PRIMARY KEY NOT NULL,
   business_id TEXT NOT NULL REFERENCES businesses(id) ON DELETE RESTRICT,
-  name TEXT NOT NULL CHECK (length(trim(name)) > 0),
-  department_id TEXT REFERENCES departments(id) ON DELETE SET NULL,
   location_id TEXT REFERENCES locations(id) ON DELETE SET NULL,
-  device_key TEXT NOT NULL,
+  name TEXT NOT NULL CHECK (length(trim(name)) > 0),
+  code TEXT CHECK (length(trim(code)) > 0),
+  description TEXT,
   active INTEGER NOT NULL DEFAULT 1 CHECK (active IN (0,1)),
   created_at TEXT NOT NULL DEFAULT (strftime('%Y-%m-%dT%H:%M:%fZ','now')),
   updated_at TEXT NOT NULL DEFAULT (strftime('%Y-%m-%dT%H:%M:%fZ','now')),
-  UNIQUE (business_id, name),
-  UNIQUE (device_key)
+  UNIQUE (business_id, code)
 ) STRICT;
 CREATE INDEX idx_terminals_business ON terminals(business_id);
-CREATE INDEX idx_terminals_device_key ON terminals(device_key);
+CREATE INDEX idx_terminals_location ON terminals(location_id);
 
 CREATE TABLE settings (
   id TEXT PRIMARY KEY NOT NULL,
@@ -90,6 +89,7 @@ CREATE TABLE users (
   username TEXT NOT NULL,
   display_name TEXT NOT NULL,
   pin_hash TEXT NOT NULL,
+  role_id TEXT REFERENCES roles(id) ON DELETE SET NULL,
   active INTEGER NOT NULL DEFAULT 1 CHECK (active IN (0,1)),
   failed_attempts INTEGER NOT NULL DEFAULT 0 CHECK (failed_attempts >= 0),
   locked_until TEXT,
