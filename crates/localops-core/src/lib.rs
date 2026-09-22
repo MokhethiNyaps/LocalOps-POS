@@ -3,6 +3,7 @@ pub mod business;
 pub mod category;
 pub mod department;
 pub mod location;
+pub mod sellable;
 pub mod terminal;
 pub mod unit;
 pub mod user;
@@ -44,6 +45,12 @@ pub enum CoreError {
     LocationNotFound,
     #[error("business not found")]
     BusinessNotFound,
+    #[error("sellable item name is required")]
+    EmptySellableName,
+    #[error("invalid sellable item kind")]
+    InvalidSellableKind,
+    #[error("sellable item not found")]
+    SellableNotFound,
     #[error("application data directory is unavailable")]
     AppDataDirectoryUnavailable,
     #[error("filesystem error: {0}")]
