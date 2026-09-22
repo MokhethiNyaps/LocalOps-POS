@@ -68,7 +68,7 @@ pub fn authenticate_user(connection: &Connection, username: &str, pin: &str) -> 
          FROM users WHERE username = ?1 AND pin_hash = ?2 AND active = 1"
     )?;
     
-    let user = stmt.query_row([&username, &pin_hash], |row| {
+    let user = stmt.query_row([&username, pin_hash.as_str()], |row| {
         Ok(User {
             id: row.get(0)?,
             business_id: row.get(1)?,

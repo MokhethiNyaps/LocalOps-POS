@@ -1,8 +1,11 @@
 pub mod bootstrap;
 pub mod business;
+pub mod category;
 pub mod department;
 pub mod location;
 pub mod terminal;
+pub mod unit;
+pub mod user;
 
 use rusqlite::{Connection, OpenFlags};
 use std::{io, path::Path, time::SystemTimeError};
@@ -19,6 +22,20 @@ pub enum CoreError {
     EmptyBusinessName,
     #[error("department name is required")]
     EmptyDepartmentName,
+    #[error("category name is required")]
+    EmptyCategoryName,
+    #[error("category not found")]
+    CategoryNotFound,
+    #[error("unit code is required")]
+    EmptyUnitCode,
+    #[error("unit not found")]
+    UnitNotFound,
+    #[error("username is required")]
+    EmptyUsername,
+    #[error("display name is required")]
+    EmptyDisplayName,
+    #[error("PIN must be at least 4 digits")]
+    PinTooShort,
     #[error("location name is required")]
     EmptyLocationName,
     #[error("terminal name is required")]
