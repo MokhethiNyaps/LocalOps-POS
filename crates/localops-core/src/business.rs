@@ -1,9 +1,10 @@
 use crate::{CoreError, Result};
 use rusqlite::{Connection, OptionalExtension};
 use uuid::Uuid;
+use serde::Serialize;
 
 /// Business entity with default settings
-#[derive(Debug, Clone)]
+#[derive(Debug, Clone, Serialize)]
 pub struct Business {
     pub id: String,
     pub name: String,

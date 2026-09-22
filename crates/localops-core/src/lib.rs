@@ -14,6 +14,7 @@ use rusqlite::{Connection, OpenFlags};
 use std::{io, path::Path, time::SystemTimeError};
 use thiserror::Error;
 use uuid::Uuid;
+use serde::Serialize;
 
 const MIGRATION_1: &str = include_str!("../migrations/0001_foundation.sql");
 
