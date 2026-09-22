@@ -25,13 +25,17 @@ CREATE TABLE locations (
   id TEXT PRIMARY KEY NOT NULL,
   business_id TEXT NOT NULL REFERENCES businesses(id) ON DELETE RESTRICT,
   name TEXT NOT NULL CHECK (length(trim(name)) > 0),
-  description TEXT,
+  code TEXT CHECK (code IS NULL OR length(trim(code)) > 0),
+  address TEXT,
+  contact_phone TEXT,
+  contact_email TEXT,
   active INTEGER NOT NULL DEFAULT 1 CHECK (active IN (0,1)),
   created_at TEXT NOT NULL DEFAULT (strftime('%Y-%m-%dT%H:%M:%fZ','now')),
   updated_at TEXT NOT NULL DEFAULT (strftime('%Y-%m-%dT%H:%M:%fZ','now')),
-  UNIQUE (business_id, name)
+  UNIQUE (business_id, code)
 ) STRICT;
 CREATE INDEX idx_locations_business ON locations(business_id);
+CREATE INDEX idx_locations_code ON locations(business_id, code);
 
 CREATE TABLE departments (
   id TEXT PRIMARY KEY NOT NULL,

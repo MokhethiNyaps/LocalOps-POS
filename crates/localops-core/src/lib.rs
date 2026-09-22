@@ -1,6 +1,7 @@
 pub mod bootstrap;
 pub mod business;
 pub mod department;
+pub mod location;
 
 use rusqlite::{Connection, OpenFlags};
 use std::{io, path::Path, time::SystemTimeError};
@@ -17,6 +18,10 @@ pub enum CoreError {
     EmptyBusinessName,
     #[error("department name is required")]
     EmptyDepartmentName,
+    #[error("location name is required")]
+    EmptyLocationName,
+    #[error("business not found")]
+    BusinessNotFound,
     #[error("application data directory is unavailable")]
     AppDataDirectoryUnavailable,
     #[error("filesystem error: {0}")]
