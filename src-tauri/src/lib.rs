@@ -25,11 +25,7 @@ pub fn run() {
 
     tauri::Builder::default()
         .manage(db_state)
-        .setup(|app| {
-            // Enable verbose logging during development builds
-.setup(|_app| Ok(()))
-            Ok(())
-        })
+        .setup(|_app| Ok(()))
         .invoke_handler(tauri::generate_handler![
             crate::commands::create_business,
             crate::commands::list_businesses,

@@ -23,5 +23,5 @@ serde = { version = "1.0", features = ["derive"] }
 log = "0.4"
 tauri = { version = "2.11.6", features = [] }
 rusqlite = { version = "0.37", features = ["bundled"] }
-tauri-plugin-log = { version = "3.0.0-alpha.1" }
+
 localops-core = { path = "../crates/localops-core" }
