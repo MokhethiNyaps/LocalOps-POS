@@ -26,8 +26,35 @@ pub fn replace_recipe(
     if yield_quantity_micros <= 0 || items.is_empty() {
         return Err(CoreError::InvalidRecipeQuantity);
     }
+    if !connection.is_autocommit() {
+        return replace_recipe_rows(
+            connection,
+            business_id,
+            owner_sellable_id,
+            yield_quantity_micros,
+            items,
+        );
+    }
     let transaction = connection.unchecked_transaction()?;
-    let owner_exists = transaction
+    let recipe_id = replace_recipe_rows(
+        &transaction,
+        business_id,
+        owner_sellable_id,
+        yield_quantity_micros,
+        items,
+    )?;
+    transaction.commit()?;
+    Ok(recipe_id)
+}
+
+fn replace_recipe_rows(
+    connection: &Connection,
+    business_id: &str,
+    owner_sellable_id: &str,
+    yield_quantity_micros: i64,
+    items: &[NewRecipeItem<'_>],
+) -> Result<String> {
+    let owner_exists = connection
         .query_row(
             "SELECT 1 FROM sellable_items
              WHERE id = ?1 AND business_id = ?2 AND active = 1",
@@ -40,14 +67,14 @@ pub fn replace_recipe(
         return Err(CoreError::CrossBusinessReference);
     }
 
-    transaction.execute(
+    connection.execute(
         "UPDATE recipes
          SET active = 0, updated_at = strftime('%Y-%m-%dT%H:%M:%fZ','now')
          WHERE owner_sellable_id = ?1 AND active = 1",
         [owner_sellable_id],
     )?;
     let recipe_id = Uuid::now_v7().to_string();
-    transaction.execute(
+    connection.execute(
         "INSERT INTO recipes(id, business_id, owner_sellable_id, yield_quantity_micros)
          VALUES(?1, ?2, ?3, ?4)",
         (
@@ -62,7 +89,7 @@ pub fn replace_recipe(
         if item.quantity_micros <= 0 {
             return Err(CoreError::InvalidRecipeQuantity);
         }
-        let base_unit_id = transaction
+        let base_unit_id = connection
             .query_row(
                 "SELECT p.base_unit_id
                  FROM products p
@@ -74,13 +101,13 @@ pub fn replace_recipe(
             .optional()?
             .ok_or(CoreError::CrossBusinessReference)?;
         conversion::convert_quantity_micros(
-            &transaction,
+            connection,
             business_id,
             item.unit_id,
             &base_unit_id,
             item.quantity_micros,
         )?;
-        transaction.execute(
+        connection.execute(
             "INSERT INTO recipe_items(
                  id, recipe_id, ingredient_product_id, quantity_micros, unit_id
              ) VALUES(?1, ?2, ?3, ?4, ?5)",
@@ -93,7 +120,6 @@ pub fn replace_recipe(
             ),
         )?;
     }
-    transaction.commit()?;
     Ok(recipe_id)
 }
 

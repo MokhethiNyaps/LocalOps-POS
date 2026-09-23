@@ -52,7 +52,7 @@ Success: an owner can configure and securely sign into a business entirely offli
 - [x] Department availability and price overrides
 - [x] Product packaging and exact conversions
 - [x] Recipes and service consumables
-- [ ] Catalogue Tauri commands and management UI
+- [x] Catalogue Tauri commands and management UI
 
 Success: products and services can be configured, assigned, packaged, and composed without industry-specific code.
 

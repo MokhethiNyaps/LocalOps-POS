@@ -1,3 +1,4 @@
+pub mod audit;
 pub mod availability;
 pub mod bootstrap;
 pub mod business;

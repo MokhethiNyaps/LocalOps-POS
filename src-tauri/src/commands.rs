@@ -2,9 +2,9 @@
 
 use localops_core::{
     business::{self},
-    session,
+    role, session,
     setup::{self, SetupResult},
-    user,
+    terminal, user,
 };
 use serde::{Deserialize, Serialize};
 use tauri::State;
@@ -77,8 +77,12 @@ pub fn complete_initial_setup(
 #[serde(rename_all = "camelCase")]
 pub struct LoginResult {
     session_id: String,
+    business_id: String,
     user_id: String,
+    terminal_id: String,
+    department_id: Option<String>,
     display_name: String,
+    permissions: Vec<String>,
 }
 
 #[tauri::command]
@@ -104,10 +108,77 @@ pub fn login(
     if let Some(previous) = current.replace(active.id.clone()) {
         let _ = session::end_session(&connection, &previous, "REPLACED");
     }
+    let permissions = role::list_user_permissions(&connection, &authenticated.id)
+        .map_err(|error| error.to_string())?
+        .into_iter()
+        .map(|permission| permission.code)
+        .collect();
     Ok(LoginResult {
         session_id: active.id,
+        business_id: active.business_id,
         user_id: authenticated.id,
+        terminal_id: active.terminal_id,
+        department_id: connection
+            .query_row(
+                "SELECT department_id FROM terminals WHERE id = ?1",
+                [&terminal_id],
+                |row| row.get(0),
+            )
+            .map_err(|error| error.to_string())?,
         display_name: authenticated.display_name,
+        permissions,
+    })
+}
+
+#[derive(Debug, Serialize)]
+#[serde(rename_all = "camelCase")]
+pub struct BootstrapTerminal {
+    id: String,
+    name: String,
+    department_id: Option<String>,
+}
+
+#[derive(Debug, Serialize)]
+#[serde(rename_all = "camelCase")]
+pub struct BootstrapBusiness {
+    id: String,
+    name: String,
+    terminals: Vec<BootstrapTerminal>,
+}
+
+#[derive(Debug, Serialize)]
+#[serde(rename_all = "camelCase")]
+pub struct AppBootstrap {
+    setup_required: bool,
+    businesses: Vec<BootstrapBusiness>,
+}
+
+#[tauri::command]
+pub fn get_app_bootstrap(state: State<'_, super::DbState>) -> Result<AppBootstrap, String> {
+    let connection = state.connection.lock().map_err(|error| error.to_string())?;
+    let businesses = business::list_businesses(&connection)
+        .map_err(|error| error.to_string())?
+        .into_iter()
+        .map(|entry| {
+            let terminals = terminal::list_terminals(&connection, &entry.id)
+                .map_err(|error| error.to_string())?
+                .into_iter()
+                .map(|value| BootstrapTerminal {
+                    id: value.id,
+                    name: value.name,
+                    department_id: value.department_id,
+                })
+                .collect();
+            Ok(BootstrapBusiness {
+                id: entry.id,
+                name: entry.name,
+                terminals,
+            })
+        })
+        .collect::<Result<Vec<_>, String>>()?;
+    Ok(AppBootstrap {
+        setup_required: businesses.is_empty(),
+        businesses,
     })
 }
 

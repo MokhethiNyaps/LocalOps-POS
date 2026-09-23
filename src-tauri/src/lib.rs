@@ -35,6 +35,15 @@ pub fn run() {
             crate::commands::complete_initial_setup,
             crate::commands::login,
             crate::commands::logout,
+            crate::commands::get_app_bootstrap,
+            crate::catalogue_commands::get_catalogue_snapshot,
+            crate::catalogue_commands::create_catalogue_category,
+            crate::catalogue_commands::create_catalogue_unit,
+            crate::catalogue_commands::create_catalogue_product,
+            crate::catalogue_commands::create_catalogue_service,
+            crate::catalogue_commands::create_catalogue_packaging,
+            crate::catalogue_commands::replace_catalogue_recipe,
+            crate::catalogue_commands::set_catalogue_availability,
         ])
         .run(tauri::generate_context!())
         .expect("error while running tauri application");
@@ -48,4 +57,6 @@ pub struct DbState {
     pub current_session: Mutex<Option<String>>,
 }
 
+mod catalogue_commands;
 mod commands;
+mod session_guard;

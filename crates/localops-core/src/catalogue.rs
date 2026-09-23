@@ -26,9 +26,18 @@ pub struct NewService<'a> {
 
 /// Creates the common sellable row and its product subtype atomically.
 pub fn create_product(connection: &Connection, input: NewProduct<'_>) -> Result<String> {
+    if !connection.is_autocommit() {
+        return create_product_rows(connection, input);
+    }
     let transaction = connection.unchecked_transaction()?;
+    let sellable_id = create_product_rows(&transaction, input)?;
+    transaction.commit()?;
+    Ok(sellable_id)
+}
+
+fn create_product_rows(connection: &Connection, input: NewProduct<'_>) -> Result<String> {
     let sellable_id = sellable::create_sellable_item(
-        &transaction,
+        connection,
         input.business_id,
         input.name,
         "PRODUCT",
@@ -37,22 +46,30 @@ pub fn create_product(connection: &Connection, input: NewProduct<'_>) -> Result<
         input.taxable,
     )?;
     product::create_product(
-        &transaction,
+        connection,
         &sellable_id,
         input.base_unit_id,
         input.cost_minor,
         input.track_stock,
         input.minimum_quantity_micros,
     )?;
-    transaction.commit()?;
     Ok(sellable_id)
 }
 
 /// Creates the common sellable row and its service subtype atomically.
 pub fn create_service(connection: &Connection, input: NewService<'_>) -> Result<String> {
+    if !connection.is_autocommit() {
+        return create_service_rows(connection, input);
+    }
     let transaction = connection.unchecked_transaction()?;
+    let sellable_id = create_service_rows(&transaction, input)?;
+    transaction.commit()?;
+    Ok(sellable_id)
+}
+
+fn create_service_rows(connection: &Connection, input: NewService<'_>) -> Result<String> {
     let sellable_id = sellable::create_sellable_item(
-        &transaction,
+        connection,
         input.business_id,
         input.name,
         "SERVICE",
@@ -60,15 +77,14 @@ pub fn create_service(connection: &Connection, input: NewService<'_>) -> Result<
         input.category_id,
         input.taxable,
     )?;
-    service::create_service(&transaction, &sellable_id, input.duration_minutes)?;
-    transaction.commit()?;
+    service::create_service(connection, &sellable_id, input.duration_minutes)?;
     Ok(sellable_id)
 }
 
 #[cfg(test)]
 mod tests {
     use super::*;
-    use crate::{CoreError, business, unit};
+    use crate::{CoreError, availability, business, category, department, packaging, recipe, unit};
 
     #[test]
     fn creates_product_aggregate_atomically() {
@@ -145,5 +161,114 @@ mod tests {
         )
         .unwrap();
         assert!(service::get_service(&database, &id).unwrap().is_some());
+    }
+
+    #[test]
+    fn configures_a_complete_mixed_operation_catalogue() {
+        let database = crate::open_memory_database().unwrap();
+        let business_id = business::create_business(&database, "Mixed Operation").unwrap();
+        let department_id =
+            department::create_department(&database, &business_id, "Restaurant", None).unwrap();
+        let food = category::create_category(&database, &business_id, "Food", None).unwrap();
+        let each =
+            unit::create_unit(&database, &business_id, "EA", "Each", "COUNT", 1, 1, 0).unwrap();
+        let gram =
+            unit::create_unit(&database, &business_id, "G", "Gram", "WEIGHT", 1, 1, 3).unwrap();
+        let chicken = create_product(
+            &database,
+            NewProduct {
+                business_id: &business_id,
+                name: "Chicken",
+                price_minor: 0,
+                category_id: Some(&food),
+                taxable: false,
+                base_unit_id: &gram,
+                cost_minor: 8,
+                track_stock: true,
+                minimum_quantity_micros: 2_000_000_000,
+            },
+        )
+        .unwrap();
+        let burger = create_product(
+            &database,
+            NewProduct {
+                business_id: &business_id,
+                name: "Chicken Burger",
+                price_minor: 7_500,
+                category_id: Some(&food),
+                taxable: true,
+                base_unit_id: &each,
+                cost_minor: 3_000,
+                track_stock: false,
+                minimum_quantity_micros: 0,
+            },
+        )
+        .unwrap();
+        let delivery = create_service(
+            &database,
+            NewService {
+                business_id: &business_id,
+                name: "Delivery",
+                price_minor: 1_500,
+                category_id: None,
+                taxable: true,
+                duration_minutes: Some(20),
+            },
+        )
+        .unwrap();
+        packaging::create_packaging(
+            &database,
+            &business_id,
+            &chicken,
+            &gram,
+            "1 kg bag",
+            1_000,
+            1,
+            true,
+            false,
+        )
+        .unwrap();
+        recipe::replace_recipe(
+            &database,
+            &business_id,
+            &burger,
+            1_000_000,
+            &[recipe::NewRecipeItem {
+                ingredient_product_id: &chicken,
+                quantity_micros: 150_000_000,
+                unit_id: &gram,
+            }],
+        )
+        .unwrap();
+        availability::set_department_availability(
+            &database,
+            &department_id,
+            &burger,
+            Some(7_000),
+            true,
+        )
+        .unwrap();
+        availability::set_department_availability(&database, &department_id, &delivery, None, true)
+            .unwrap();
+
+        let department_items =
+            availability::list_department_sellables(&database, &department_id).unwrap();
+        let consumption = recipe::calculate_consumption(&database, &burger, 2_000_000).unwrap();
+        assert_eq!(department_items.len(), 2);
+        assert_eq!(
+            department_items
+                .iter()
+                .find(|item| item.sellable_id == burger)
+                .unwrap()
+                .effective_price_minor,
+            7_000
+        );
+        assert_eq!(consumption[0].quantity_micros, 300_000_000);
+        assert_eq!(
+            packaging::list_product_packaging(&database, &chicken)
+                .unwrap()
+                .len(),
+            1
+        );
     }
 }

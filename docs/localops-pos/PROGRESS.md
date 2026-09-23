@@ -1,6 +1,6 @@
 # LocalOps POS Progress
 
-## Status: Phase 4 - In Progress
+## Status: Phase 5 - In Progress
 
 ## Quick Reference
 
@@ -22,14 +22,16 @@
 - Schema migration 0002 with terminal device identity and legacy role reconciliation
 - Department/location defaults, local session lifecycle, login/logout commands, and atomic owner onboarding
 - Exact integer unit conversions, product packaging, and versioned product/service recipes
+- Session-scoped catalogue commands with permission checks and atomic audit events
+- Login-aware desktop workspace for categories, exact units, products, services, packaging, recipes, and department availability
 
 ## Current Phase Tasks
 
-- [x] Product packaging and exact conversion services
-- [x] Recipe and consumable services
-- [ ] Catalogue command boundary
-- [ ] Catalogue management UI
-- [ ] Phase 4 integration scenarios
+- [ ] Authoritative inventory movement ledger and cached balances
+- [ ] Receiving and purchase documents
+- [ ] Transfers, wastage, and stock counts
+- [ ] Negative-stock enforcement and inventory audit
+- [ ] Inventory command boundary, UI, and failure scenarios
 
 ## Decisions
 
@@ -52,7 +54,8 @@
 - Verified 93 Rust tests, frontend tests, production build, formatting, and strict lint.
 - Completed Phase 3 with schema-v2 migration coverage and 101 passing Rust tests.
 - Added exact conversions, packaging, and recipe consumption with 107 passing Rust tests and strict lint.
+- Completed Phase 4 with audited session-scoped commands, a signed-in catalogue workspace, and mixed-operation integration coverage.
 
 ## Next Step
 
-Expose the catalogue domain through the desktop command boundary and build its management UI.
+Implement the authoritative inventory ledger and prove cached balances reconcile to movements.
