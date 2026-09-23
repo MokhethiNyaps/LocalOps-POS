@@ -50,12 +50,14 @@ pub struct ReceiptLine {
 
 #[derive(Debug, Clone, PartialEq, Eq)]
 pub struct ReceiptPayment {
+    pub id: String,
     pub method_name: String,
     pub method_kind: String,
     pub amount_minor: i64,
     pub tendered_minor: Option<i64>,
     pub change_minor: i64,
     pub reference: Option<String>,
+    pub status: String,
 }
 
 #[derive(Debug, Clone, PartialEq, Eq)]
@@ -89,6 +91,14 @@ struct PreparedLine {
     tax_minor: i64,
     line_total_minor: i64,
     cost_minor: i64,
+    consumptions: Vec<PreparedConsumption>,
+}
+
+#[derive(Debug)]
+struct PreparedConsumption {
+    product_id: String,
+    location_id: String,
+    quantity_micros: i64,
 }
 
 pub fn complete_sale(connection: &Connection, input: CompleteSale<'_>) -> Result<CompletedSale> {
@@ -237,6 +247,7 @@ pub fn complete_sale(connection: &Connection, input: CompleteSale<'_>) -> Result
             |row| row.get::<_, bool>(0),
         )?;
         let mut line_cost = 0_i64;
+        let mut consumptions = Vec::new();
         if has_recipe {
             let location_id = location_id
                 .as_deref()
@@ -257,11 +268,16 @@ pub fn complete_sale(connection: &Connection, input: CompleteSale<'_>) -> Result
                     .ok_or(CoreError::MoneyOverflow)?;
                 *effects
                     .entry((
-                        consumed.ingredient_product_id,
+                        consumed.ingredient_product_id.clone(),
                         location_id.to_owned(),
                         "CONSUMPTION".to_owned(),
                     ))
                     .or_default() -= consumed.quantity_micros;
+                consumptions.push(PreparedConsumption {
+                    product_id: consumed.ingredient_product_id,
+                    location_id: location_id.to_owned(),
+                    quantity_micros: consumed.quantity_micros,
+                });
             }
         } else if available.1 == "PRODUCT" {
             line_cost =
@@ -277,6 +293,11 @@ pub fn complete_sale(connection: &Connection, input: CompleteSale<'_>) -> Result
                         "SALE".to_owned(),
                     ))
                     .or_default() -= line.quantity_micros;
+                consumptions.push(PreparedConsumption {
+                    product_id: line.sellable_id.to_owned(),
+                    location_id: location_id.to_owned(),
+                    quantity_micros: line.quantity_micros,
+                });
             }
         }
         subtotal_minor = subtotal_minor
@@ -304,6 +325,7 @@ pub fn complete_sale(connection: &Connection, input: CompleteSale<'_>) -> Result
             tax_minor: line_tax,
             line_total_minor: line_total,
             cost_minor: line_cost,
+            consumptions,
         });
     }
 
@@ -413,16 +435,30 @@ pub fn complete_sale(connection: &Connection, input: CompleteSale<'_>) -> Result
                 line.cost_minor,
             ),
         )?;
+        for consumption in &line.consumptions {
+            transaction.execute(
+                "INSERT INTO sale_item_consumptions(
+                     sale_item_id, product_id, location_id, quantity_micros
+                 ) VALUES(?1, ?2, ?3, ?4)",
+                (
+                    &line.id,
+                    &consumption.product_id,
+                    &consumption.location_id,
+                    consumption.quantity_micros,
+                ),
+            )?;
+        }
     }
     let mut receipt_payments = Vec::with_capacity(prepared_payments.len());
     for (payment, method_name, method_kind, tendered, change) in prepared_payments {
+        let payment_id = Uuid::now_v7().to_string();
         transaction.execute(
             "INSERT INTO payments(
                  id, business_id, sale_id, method_id, amount_minor, tendered_minor,
                  change_minor, reference, created_by
              ) VALUES(?1, ?2, ?3, ?4, ?5, ?6, ?7, ?8, ?9)",
             (
-                Uuid::now_v7().to_string(),
+                &payment_id,
                 input.business_id,
                 &sale_id,
                 payment.method_id,
@@ -434,12 +470,14 @@ pub fn complete_sale(connection: &Connection, input: CompleteSale<'_>) -> Result
             ),
         )?;
         receipt_payments.push(ReceiptPayment {
+            id: payment_id,
             method_name,
             method_kind,
             amount_minor: payment.amount_minor,
             tendered_minor: tendered,
             change_minor: change,
             reference: payment.reference.map(str::to_owned),
+            status: "RECORDED".to_owned(),
         });
     }
     for ((product_id, location_id, movement_type), quantity_micros) in effects {
@@ -523,7 +561,7 @@ pub fn load_completed_sale(connection: &Connection, sale_id: &str) -> Result<Com
         .query_row(
             "SELECT sale_number, currency, subtotal_minor, discount_minor, tax_minor,
                     total_minor, amount_paid_minor, change_due_minor, completed_at
-             FROM sales WHERE id = ?1 AND status IN ('COMPLETED','PART_REFUNDED','REFUNDED')",
+             FROM sales WHERE id = ?1 AND status IN ('COMPLETED','PART_REFUNDED','REFUNDED','VOID')",
             [sale_id],
             |row| {
                 Ok((
@@ -561,19 +599,22 @@ pub fn load_completed_sale(connection: &Connection, sale_id: &str) -> Result<Com
         })?
         .collect::<std::result::Result<Vec<_>, _>>()?;
     let mut payment_statement = connection.prepare(
-        "SELECT pm.name, pm.kind, p.amount_minor, p.tendered_minor, p.change_minor, p.reference
+        "SELECT p.id, pm.name, pm.kind, p.amount_minor, p.tendered_minor, p.change_minor,
+                p.reference, p.status
          FROM payments p JOIN payment_methods pm ON pm.id = p.method_id
-         WHERE p.sale_id = ?1 AND p.status = 'RECORDED' ORDER BY p.created_at, p.id",
+         WHERE p.sale_id = ?1 ORDER BY p.created_at, p.id",
     )?;
     let payments = payment_statement
         .query_map([sale_id], |row| {
             Ok(ReceiptPayment {
-                method_name: row.get(0)?,
-                method_kind: row.get(1)?,
-                amount_minor: row.get(2)?,
-                tendered_minor: row.get(3)?,
-                change_minor: row.get(4)?,
-                reference: row.get(5)?,
+                id: row.get(0)?,
+                method_name: row.get(1)?,
+                method_kind: row.get(2)?,
+                amount_minor: row.get(3)?,
+                tendered_minor: row.get(4)?,
+                change_minor: row.get(5)?,
+                reference: row.get(6)?,
+                status: row.get(7)?,
             })
         })?
         .collect::<std::result::Result<Vec<_>, _>>()?;

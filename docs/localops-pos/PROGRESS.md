@@ -1,6 +1,6 @@
 # LocalOps POS Progress
 
-## Status: Phase 6 - In Progress
+## Status: Phase 7 - In Progress
 
 ## Quick Reference
 
@@ -25,14 +25,14 @@
 - Session-scoped catalogue commands with permission checks and atomic audit events
 - Login-aware desktop workspace for categories, exact units, products, services, packaging, recipes, and department availability
 - Ledger-backed inventory workspace for suppliers, receiving, transfers, waste/damage, stock counts, balances, and recent movements
+- Atomic POS workspace with split payments, structured receipts, idempotent completion, recipe/direct stock consumption, partial refunds, and full voids
 
 ## Current Phase Tasks
 
-- [x] Atomic sales and immutable line snapshots
-- [x] Split payments, cash tender, and change
-- [x] Product and recipe inventory consumption with idempotency
-- [ ] Structured receipts, voids, and refunds
-- [ ] POS command boundary, UI, and required failure scenarios
+- [ ] Shift close and cash reconciliation
+- [ ] Expense categories and immutable expense records
+- [ ] Session-scoped commands, permissions, and audit coverage
+- [ ] Shifts and expenses desktop workflows
 
 ## Decisions
 
@@ -61,7 +61,8 @@
 - Added migration 0004 and atomic transfers, wastage/damage, and stock counts that preserve expected/count/variance history, including zero-variance counts.
 - Completed Phase 5 with session-scoped inventory commands, live reconciliation status, operational forms, movement history, frontend exact-input tests, and all required negative-stock/rollback scenarios.
 - Added atomic sale completion with immutable item snapshots, exact tax rounding, split payments, cash change, direct/recipe stock consumption, duplicate-request replay, and rollback failure coverage; verified 126 Rust tests and strict Clippy.
+- Completed Phase 6 with migration 0005 consumption snapshots, append-only split-payment refunds and voids, explicit stock restoration, structured receipts, session-scoped POS commands, and a desktop till; verified 129 Rust tests, 2 frontend tests, production build, and strict Clippy.
 
 ## Next Step
 
-Implement structured receipt retrieval, void/refund reversals, and the session-scoped POS command and desktop workflow.
+Implement shift closing/cash reconciliation and audited expense records with their desktop workflows.

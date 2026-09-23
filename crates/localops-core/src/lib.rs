@@ -15,6 +15,7 @@ pub mod payment;
 pub mod product;
 pub mod purchasing;
 pub mod recipe;
+pub mod refund;
 pub mod role;
 pub mod sales;
 pub mod sellable;
@@ -37,6 +38,7 @@ const MIGRATION_1: &str = include_str!("../migrations/0001_foundation.sql");
 const MIGRATION_2: &str = include_str!("../migrations/0002_identity_alignment.sql");
 const MIGRATION_3: &str = include_str!("../migrations/0003_inventory_integrity.sql");
 const MIGRATION_4: &str = include_str!("../migrations/0004_stock_count_zero_variance.sql");
+const MIGRATION_5: &str = include_str!("../migrations/0005_sale_reversals.sql");
 
 #[derive(Debug, Error)]
 pub enum CoreError {
@@ -124,6 +126,24 @@ pub enum CoreError {
     OpenShiftNotFound,
     #[error("an inventory location is required for stock consumption")]
     InventoryLocationRequired,
+    #[error("refund must contain at least one item")]
+    EmptyRefund,
+    #[error("refund reason is required")]
+    EmptyRefundReason,
+    #[error("refund contains a duplicate sale item or payment")]
+    DuplicateRefundAllocation,
+    #[error("refund quantity exceeds the remaining sold quantity")]
+    RefundQuantityExceeded,
+    #[error("refund payment allocation exceeds the original payment")]
+    RefundPaymentExceeded,
+    #[error("refund payment allocations must equal the refund total")]
+    RefundPaymentMismatch,
+    #[error("a void must reverse the entire unrefunded sale")]
+    IncompleteVoid,
+    #[error("sale has already been voided")]
+    SaleAlreadyVoided,
+    #[error("refund not found")]
+    RefundNotFound,
     #[error("username is required")]
     EmptyUsername,
     #[error("display name is required")]
@@ -236,6 +256,10 @@ fn migrate(connection: &Connection) -> Result<()> {
             "embedded-v4",
             MIGRATION_4,
         )?;
+        version = 4;
+    }
+    if version < 5 {
+        apply_migration(connection, 5, "sale-reversals", "embedded-v5", MIGRATION_5)?;
     }
     Ok(())
 }
@@ -285,7 +309,7 @@ mod tests {
             })
             .unwrap();
         assert_eq!(enabled, 1);
-        assert_eq!(version, 4);
+        assert_eq!(version, 5);
     }
 
     #[test]
@@ -396,7 +420,7 @@ mod tests {
                 |row| row.get(0),
             )
             .unwrap();
-        assert_eq!(version, 4);
+        assert_eq!(version, 5);
         assert_eq!(device_key, "TILL-1");
         assert_eq!(assignments, 1);
     }

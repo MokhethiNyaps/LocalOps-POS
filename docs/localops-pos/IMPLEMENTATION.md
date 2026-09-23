@@ -68,11 +68,11 @@ Success: every stock change is traceable and balances reconcile to movements.
 
 ## Phase 6: POS and Payments
 
-- [ ] Atomic sales and immutable snapshots
-- [ ] Split payments, cash tender, and change
-- [ ] Recipe/product consumption and idempotency
-- [ ] Receipts, voids, and refunds
-- [ ] POS UI and required success/failure scenarios
+- [x] Atomic sales and immutable snapshots
+- [x] Split payments, cash tender, and change
+- [x] Recipe/product consumption and idempotency
+- [x] Receipts, voids, and refunds
+- [x] POS UI and required success/failure scenarios
 
 Success: sales cannot partially complete and all totals, payments, stock, and reversals remain traceable.
 
