@@ -50,8 +50,8 @@ Success: an owner can configure and securely sign into a business entirely offli
 - [x] Categories, units, sellables, products, and services
 - [x] Atomic product/service aggregate creation
 - [x] Department availability and price overrides
-- [ ] Product packaging and exact conversions
-- [ ] Recipes and service consumables
+- [x] Product packaging and exact conversions
+- [x] Recipes and service consumables
 - [ ] Catalogue Tauri commands and management UI
 
 Success: products and services can be configured, assigned, packaged, and composed without industry-specific code.

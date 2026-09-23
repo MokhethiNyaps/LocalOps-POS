@@ -21,11 +21,12 @@
 - Working first-run business creation UI and frontend test
 - Schema migration 0002 with terminal device identity and legacy role reconciliation
 - Department/location defaults, local session lifecycle, login/logout commands, and atomic owner onboarding
+- Exact integer unit conversions, product packaging, and versioned product/service recipes
 
 ## Current Phase Tasks
 
-- [ ] Product packaging and exact conversion services
-- [ ] Recipe and consumable services
+- [x] Product packaging and exact conversion services
+- [x] Recipe and consumable services
 - [ ] Catalogue command boundary
 - [ ] Catalogue management UI
 - [ ] Phase 4 integration scenarios
@@ -50,7 +51,8 @@
 - Added roles/permissions, atomic catalogue creation, department availability, and first-run UI.
 - Verified 93 Rust tests, frontend tests, production build, formatting, and strict lint.
 - Completed Phase 3 with schema-v2 migration coverage and 101 passing Rust tests.
+- Added exact conversions, packaging, and recipe consumption with 107 passing Rust tests and strict lint.
 
 ## Next Step
 
-Complete product packaging and exact conversion behavior, then recipes/consumables.
+Expose the catalogue domain through the desktop command boundary and build its management UI.

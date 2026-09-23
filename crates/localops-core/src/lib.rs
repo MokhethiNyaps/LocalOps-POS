@@ -3,9 +3,12 @@ pub mod bootstrap;
 pub mod business;
 pub mod catalogue;
 pub mod category;
+pub mod conversion;
 pub mod department;
 pub mod location;
+pub mod packaging;
 pub mod product;
+pub mod recipe;
 pub mod role;
 pub mod sellable;
 pub mod service;
@@ -43,6 +46,18 @@ pub enum CoreError {
     EmptyUnitCode,
     #[error("unit not found")]
     UnitNotFound,
+    #[error("units use incompatible dimensions")]
+    IncompatibleUnits,
+    #[error("quantity conversion is not exact at six-decimal precision")]
+    InexactQuantity,
+    #[error("quantity calculation overflowed the supported range")]
+    QuantityOverflow,
+    #[error("product packaging not found")]
+    PackagingNotFound,
+    #[error("recipe not found")]
+    RecipeNotFound,
+    #[error("recipe quantity must be greater than zero")]
+    InvalidRecipeQuantity,
     #[error("username is required")]
     EmptyUsername,
     #[error("display name is required")]
