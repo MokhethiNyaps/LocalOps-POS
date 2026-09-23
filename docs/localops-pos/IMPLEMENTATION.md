@@ -78,9 +78,9 @@ Success: sales cannot partially complete and all totals, payments, stock, and re
 
 ## Phase 7: Shifts and Expenses
 
-- [ ] Shift open/close and cash reconciliation
-- [ ] Expense categories and records
-- [ ] Permission checks, audit, and UI
+- [x] Shift open/close and cash reconciliation
+- [x] Expense categories and records
+- [x] Permission checks, audit, and UI
 
 Success: cashier periods and expenses reconcile without deleting history.
 

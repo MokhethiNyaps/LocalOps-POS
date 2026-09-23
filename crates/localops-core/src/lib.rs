@@ -6,6 +6,7 @@ pub mod catalogue;
 pub mod category;
 pub mod conversion;
 pub mod department;
+pub mod expense;
 pub mod inventory;
 pub mod inventory_operations;
 pub mod location;
@@ -39,6 +40,7 @@ const MIGRATION_2: &str = include_str!("../migrations/0002_identity_alignment.sq
 const MIGRATION_3: &str = include_str!("../migrations/0003_inventory_integrity.sql");
 const MIGRATION_4: &str = include_str!("../migrations/0004_stock_count_zero_variance.sql");
 const MIGRATION_5: &str = include_str!("../migrations/0005_sale_reversals.sql");
+const MIGRATION_6: &str = include_str!("../migrations/0006_shift_expenses.sql");
 
 #[derive(Debug, Error)]
 pub enum CoreError {
@@ -144,6 +146,22 @@ pub enum CoreError {
     SaleAlreadyVoided,
     #[error("refund not found")]
     RefundNotFound,
+    #[error("shift is not open")]
+    ShiftNotOpen,
+    #[error("actual cash balance must not be negative")]
+    InvalidActualBalance,
+    #[error("expense category name is required")]
+    EmptyExpenseCategoryName,
+    #[error("expense description is required")]
+    EmptyExpenseDescription,
+    #[error("expense amount must be greater than zero")]
+    InvalidExpenseAmount,
+    #[error("expense category not found")]
+    ExpenseCategoryNotFound,
+    #[error("expense not found")]
+    ExpenseNotFound,
+    #[error("expense has already been voided")]
+    ExpenseAlreadyVoided,
     #[error("username is required")]
     EmptyUsername,
     #[error("display name is required")]
@@ -260,6 +278,10 @@ fn migrate(connection: &Connection) -> Result<()> {
     }
     if version < 5 {
         apply_migration(connection, 5, "sale-reversals", "embedded-v5", MIGRATION_5)?;
+        version = 5;
+    }
+    if version < 6 {
+        apply_migration(connection, 6, "shift-expenses", "embedded-v6", MIGRATION_6)?;
     }
     Ok(())
 }
@@ -309,7 +331,7 @@ mod tests {
             })
             .unwrap();
         assert_eq!(enabled, 1);
-        assert_eq!(version, 5);
+        assert_eq!(version, 6);
     }
 
     #[test]
@@ -420,7 +442,7 @@ mod tests {
                 |row| row.get(0),
             )
             .unwrap();
-        assert_eq!(version, 5);
+        assert_eq!(version, 6);
         assert_eq!(device_key, "TILL-1");
         assert_eq!(assignments, 1);
     }

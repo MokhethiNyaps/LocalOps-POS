@@ -55,6 +55,11 @@ pub fn run() {
             crate::sales_commands::complete_pos_sale,
             crate::sales_commands::get_sale_receipt,
             crate::sales_commands::create_pos_refund,
+            crate::operations_commands::get_operations_snapshot,
+            crate::operations_commands::close_current_shift,
+            crate::operations_commands::create_expense_category,
+            crate::operations_commands::record_operating_expense,
+            crate::operations_commands::void_operating_expense,
         ])
         .run(tauri::generate_context!())
         .expect("error while running tauri application");
@@ -71,5 +76,6 @@ pub struct DbState {
 mod catalogue_commands;
 mod commands;
 mod inventory_commands;
+mod operations_commands;
 mod sales_commands;
 mod session_guard;
