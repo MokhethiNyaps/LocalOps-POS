@@ -62,7 +62,7 @@ Success: products and services can be configured, assigned, packaged, and compos
 - [x] Receiving and purchases
 - [x] Transfers, wastage, and stock counts
 - [x] Negative-stock enforcement and audit
-- [ ] Inventory UI and failure scenarios
+- [x] Inventory UI and failure scenarios
 
 Success: every stock change is traceable and balances reconcile to movements.
 

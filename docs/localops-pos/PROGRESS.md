@@ -1,6 +1,6 @@
 # LocalOps POS Progress
 
-## Status: Phase 5 - In Progress
+## Status: Phase 6 - In Progress
 
 ## Quick Reference
 
@@ -24,14 +24,15 @@
 - Exact integer unit conversions, product packaging, and versioned product/service recipes
 - Session-scoped catalogue commands with permission checks and atomic audit events
 - Login-aware desktop workspace for categories, exact units, products, services, packaging, recipes, and department availability
+- Ledger-backed inventory workspace for suppliers, receiving, transfers, waste/damage, stock counts, balances, and recent movements
 
 ## Current Phase Tasks
 
-- [x] Authoritative inventory movement ledger and cached balances
-- [x] Receiving and purchase documents
-- [x] Transfers, wastage, and stock counts
-- [x] Negative-stock enforcement and inventory audit
-- [ ] Inventory command boundary, UI, and failure scenarios
+- [ ] Atomic sales and immutable line snapshots
+- [ ] Split payments, cash tender, and change
+- [ ] Product and recipe inventory consumption with idempotency
+- [ ] Structured receipts, voids, and refunds
+- [ ] POS command boundary, UI, and required failure scenarios
 
 ## Decisions
 
@@ -58,7 +59,8 @@
 - Started Phase 5 with an authoritative, audited movement ledger, atomic balance cache, negative-stock enforcement, duplicate-reference protection, and reconciliation checks.
 - Added schema migration 0003 plus atomic supplier purchasing/receiving, exact packaging conversion, centralized monetary rounding, latest-cost updates, and stock movements.
 - Added migration 0004 and atomic transfers, wastage/damage, and stock counts that preserve expected/count/variance history, including zero-variance counts.
+- Completed Phase 5 with session-scoped inventory commands, live reconciliation status, operational forms, movement history, frontend exact-input tests, and all required negative-stock/rollback scenarios.
 
 ## Next Step
 
-Expose inventory workflows through session-scoped commands and build the inventory workspace.
+Implement atomic sale completion with immutable line snapshots, payment integrity, and idempotency.
