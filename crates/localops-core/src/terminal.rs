@@ -7,7 +7,9 @@ use uuid::Uuid;
 pub struct Terminal {
     pub id: String,
     pub business_id: String,
+    pub department_id: Option<String>,
     pub location_id: Option<String>,
+    pub device_key: String,
     pub name: String,
     pub code: Option<String>,
     pub description: Option<String>,
@@ -22,9 +24,35 @@ pub fn create_terminal(
     name: &str,
     code: Option<&str>,
 ) -> Result<String> {
+    let device_key = Uuid::now_v7().to_string();
+    create_terminal_with_identity(
+        connection,
+        business_id,
+        None,
+        location_id,
+        name,
+        code,
+        &device_key,
+    )
+}
+
+#[allow(clippy::too_many_arguments)]
+pub fn create_terminal_with_identity(
+    connection: &Connection,
+    business_id: &str,
+    department_id: Option<&str>,
+    location_id: Option<&str>,
+    name: &str,
+    code: Option<&str>,
+    device_key: &str,
+) -> Result<String> {
     let name = name.trim();
     if name.is_empty() {
         return Err(CoreError::EmptyTerminalName);
+    }
+    let device_key = device_key.trim();
+    if device_key.is_empty() {
+        return Err(CoreError::EmptyDeviceKey);
     }
 
     // Verify business exists
@@ -45,8 +73,8 @@ pub fn create_terminal(
     if let Some(loc_id) = location_id {
         let loc_exists: bool = connection
             .query_row(
-                "SELECT 1 FROM locations WHERE id = ?1 AND active = 1",
-                [loc_id],
+                "SELECT 1 FROM locations WHERE id = ?1 AND business_id = ?2 AND active = 1",
+                (loc_id, business_id),
                 |row| row.get::<_, i32>(0),
             )
             .optional()?
@@ -57,10 +85,34 @@ pub fn create_terminal(
         }
     }
 
+    if let Some(dept_id) = department_id {
+        let department_exists = connection
+            .query_row(
+                "SELECT 1 FROM departments WHERE id = ?1 AND business_id = ?2 AND active = 1",
+                (dept_id, business_id),
+                |_| Ok(()),
+            )
+            .optional()?
+            .is_some();
+        if !department_exists {
+            return Err(CoreError::DepartmentNotFound);
+        }
+    }
+
     let id = Uuid::now_v7().to_string();
     connection.execute(
-        "INSERT INTO terminals(id, business_id, location_id, name, code) VALUES(?1, ?2, ?3, ?4, ?5)",
-        (&id, business_id, location_id, name, code),
+        "INSERT INTO terminals(
+             id, business_id, department_id, location_id, device_key, name, code
+         ) VALUES(?1, ?2, ?3, ?4, ?5, ?6, ?7)",
+        (
+            &id,
+            business_id,
+            department_id,
+            location_id,
+            device_key,
+            name,
+            code,
+        ),
     )?;
     Ok(id)
 }
@@ -68,7 +120,7 @@ pub fn create_terminal(
 /// Get a terminal by ID
 pub fn get_terminal(connection: &Connection, id: &str) -> Result<Option<Terminal>> {
     let mut stmt = connection.prepare(
-        "SELECT id, business_id, location_id, name, code, description, active 
+        "SELECT id, business_id, department_id, location_id, device_key, name, code, description, active 
          FROM terminals WHERE id = ?1",
     )?;
     let terminal = stmt
@@ -76,11 +128,13 @@ pub fn get_terminal(connection: &Connection, id: &str) -> Result<Option<Terminal
             Ok(Terminal {
                 id: row.get(0)?,
                 business_id: row.get(1)?,
-                location_id: row.get(2)?,
-                name: row.get(3)?,
-                code: row.get(4)?,
-                description: row.get(5)?,
-                active: row.get(6)?,
+                department_id: row.get(2)?,
+                location_id: row.get(3)?,
+                device_key: row.get(4)?,
+                name: row.get(5)?,
+                code: row.get(6)?,
+                description: row.get(7)?,
+                active: row.get(8)?,
             })
         })
         .optional()?;
@@ -94,7 +148,7 @@ pub fn get_terminal_by_code(
     code: &str,
 ) -> Result<Option<Terminal>> {
     let mut stmt = connection.prepare(
-        "SELECT id, business_id, location_id, name, code, description, active 
+        "SELECT id, business_id, department_id, location_id, device_key, name, code, description, active 
          FROM terminals WHERE business_id = ?1 AND code = ?2 AND active = 1",
     )?;
     let terminal = stmt
@@ -102,11 +156,13 @@ pub fn get_terminal_by_code(
             Ok(Terminal {
                 id: row.get(0)?,
                 business_id: row.get(1)?,
-                location_id: row.get(2)?,
-                name: row.get(3)?,
-                code: row.get(4)?,
-                description: row.get(5)?,
-                active: row.get(6)?,
+                department_id: row.get(2)?,
+                location_id: row.get(3)?,
+                device_key: row.get(4)?,
+                name: row.get(5)?,
+                code: row.get(6)?,
+                description: row.get(7)?,
+                active: row.get(8)?,
             })
         })
         .optional()?;
@@ -149,7 +205,7 @@ pub fn deactivate_terminal(connection: &Connection, id: &str) -> Result<()> {
 /// List all active terminals for a business
 pub fn list_terminals(connection: &Connection, business_id: &str) -> Result<Vec<Terminal>> {
     let mut stmt = connection.prepare(
-        "SELECT id, business_id, location_id, name, code, description, active 
+        "SELECT id, business_id, department_id, location_id, device_key, name, code, description, active 
          FROM terminals 
          WHERE business_id = ?1 AND active = 1 
          ORDER BY name",
@@ -158,11 +214,13 @@ pub fn list_terminals(connection: &Connection, business_id: &str) -> Result<Vec<
         Ok(Terminal {
             id: row.get(0)?,
             business_id: row.get(1)?,
-            location_id: row.get(2)?,
-            name: row.get(3)?,
-            code: row.get(4)?,
-            description: row.get(5)?,
-            active: row.get(6)?,
+            department_id: row.get(2)?,
+            location_id: row.get(3)?,
+            device_key: row.get(4)?,
+            name: row.get(5)?,
+            code: row.get(6)?,
+            description: row.get(7)?,
+            active: row.get(8)?,
         })
     })?;
     terminals
@@ -176,7 +234,7 @@ pub fn list_terminals_by_location(
     location_id: &str,
 ) -> Result<Vec<Terminal>> {
     let mut stmt = connection.prepare(
-        "SELECT id, business_id, location_id, name, code, description, active 
+        "SELECT id, business_id, department_id, location_id, device_key, name, code, description, active 
          FROM terminals 
          WHERE location_id = ?1 AND active = 1 
          ORDER BY name",
@@ -185,11 +243,13 @@ pub fn list_terminals_by_location(
         Ok(Terminal {
             id: row.get(0)?,
             business_id: row.get(1)?,
-            location_id: row.get(2)?,
-            name: row.get(3)?,
-            code: row.get(4)?,
-            description: row.get(5)?,
-            active: row.get(6)?,
+            department_id: row.get(2)?,
+            location_id: row.get(3)?,
+            device_key: row.get(4)?,
+            name: row.get(5)?,
+            code: row.get(6)?,
+            description: row.get(7)?,
+            active: row.get(8)?,
         })
     })?;
     terminals

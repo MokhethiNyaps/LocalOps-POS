@@ -11,6 +11,14 @@ pub struct Department {
     pub description: Option<String>,
 }
 
+#[derive(Debug, Clone, PartialEq, Eq)]
+pub struct DepartmentLocation {
+    pub department_id: String,
+    pub location_id: String,
+    pub location_name: String,
+    pub is_default: bool,
+}
+
 /// Create a new department
 pub fn create_department(
     connection: &Connection,
@@ -81,10 +89,71 @@ pub fn deactivate_department(connection: &Connection, id: &str) -> Result<()> {
     Ok(())
 }
 
+pub fn assign_location(
+    connection: &Connection,
+    department_id: &str,
+    location_id: &str,
+    is_default: bool,
+) -> Result<()> {
+    let transaction = connection.unchecked_transaction()?;
+    let same_business = transaction
+        .query_row(
+            "SELECT 1
+             FROM departments d JOIN locations l ON l.business_id = d.business_id
+             WHERE d.id = ?1 AND l.id = ?2 AND d.active = 1 AND l.active = 1",
+            (department_id, location_id),
+            |_| Ok(()),
+        )
+        .optional()?
+        .is_some();
+    if !same_business {
+        return Err(CoreError::CrossBusinessReference);
+    }
+
+    if is_default {
+        transaction.execute(
+            "UPDATE department_locations SET is_default = 0 WHERE department_id = ?1",
+            [department_id],
+        )?;
+    }
+    transaction.execute(
+        "INSERT INTO department_locations(department_id, location_id, is_default)
+         VALUES(?1, ?2, ?3)
+         ON CONFLICT(department_id, location_id) DO UPDATE SET is_default = excluded.is_default",
+        (department_id, location_id, is_default),
+    )?;
+    transaction.commit()?;
+    Ok(())
+}
+
+pub fn list_department_locations(
+    connection: &Connection,
+    department_id: &str,
+) -> Result<Vec<DepartmentLocation>> {
+    let mut statement = connection.prepare(
+        "SELECT dl.department_id, dl.location_id, l.name, dl.is_default
+         FROM department_locations dl
+         JOIN locations l ON l.id = dl.location_id
+         WHERE dl.department_id = ?1 AND l.active = 1
+         ORDER BY dl.is_default DESC, l.name",
+    )?;
+    statement
+        .query_map([department_id], |row| {
+            Ok(DepartmentLocation {
+                department_id: row.get(0)?,
+                location_id: row.get(1)?,
+                location_name: row.get(2)?,
+                is_default: row.get(3)?,
+            })
+        })?
+        .collect::<std::result::Result<Vec<_>, _>>()
+        .map_err(Into::into)
+}
+
 #[cfg(test)]
 mod tests {
     use super::*;
-    use crate::{business, open_memory_database};
+    use crate::{business, location, open_memory_database};
 
     #[test]
     fn creates_department() {
@@ -151,5 +220,35 @@ mod tests {
         deactivate_department(&db, &id).unwrap();
         let depts = list_departments(&db, &business_id).unwrap();
         assert_eq!(depts.len(), 0);
+    }
+
+    #[test]
+    fn assigns_locations_and_changes_the_default_atomically() {
+        let db = open_memory_database().unwrap();
+        let business_id = business::create_business(&db, "Test Business").unwrap();
+        let department_id = create_department(&db, &business_id, "Bar", None).unwrap();
+        let main =
+            location::create_location(&db, &business_id, "Main Store", Some("MAIN")).unwrap();
+        let bar = location::create_location(&db, &business_id, "Bar Store", Some("BAR")).unwrap();
+
+        assign_location(&db, &department_id, &main, true).unwrap();
+        assign_location(&db, &department_id, &bar, true).unwrap();
+        let locations = list_department_locations(&db, &department_id).unwrap();
+        assert_eq!(locations.len(), 2);
+        assert_eq!(locations.iter().filter(|item| item.is_default).count(), 1);
+        assert_eq!(locations[0].location_id, bar);
+    }
+
+    #[test]
+    fn blocks_location_assignment_across_businesses() {
+        let db = open_memory_database().unwrap();
+        let business_a = business::create_business(&db, "Business A").unwrap();
+        let business_b = business::create_business(&db, "Business B").unwrap();
+        let department_id = create_department(&db, &business_a, "Bar", None).unwrap();
+        let location_id = location::create_location(&db, &business_b, "Store", None).unwrap();
+        assert!(matches!(
+            assign_location(&db, &department_id, &location_id, true),
+            Err(CoreError::CrossBusinessReference)
+        ));
     }
 }

@@ -40,8 +40,8 @@ Success: application opens a versioned local database and passes bootstrap tests
 - [x] Business, department, location, terminal, and user repositories
 - [x] Argon2id PIN authentication and lockout
 - [x] Many-to-many roles and permissions
-- [ ] Department/location associations and terminal schema reconciliation
-- [ ] Sessions, permission-enforced commands, and complete setup UI
+- [x] Department/location associations and terminal schema reconciliation
+- [x] Sessions, local login/logout commands, owner permissions, and atomic setup UI
 
 Success: an owner can configure and securely sign into a business entirely offline.
 

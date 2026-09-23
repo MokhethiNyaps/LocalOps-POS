@@ -22,6 +22,7 @@ pub fn run() {
     // Wrap the connection in a lightweight state object for Tauri
     let db_state = DbState {
         connection: Mutex::new(connection),
+        current_session: Mutex::new(None),
     };
 
     tauri::Builder::default()
@@ -31,6 +32,9 @@ pub fn run() {
             crate::commands::create_business,
             crate::commands::list_businesses,
             crate::commands::update_trading_name,
+            crate::commands::complete_initial_setup,
+            crate::commands::login,
+            crate::commands::logout,
         ])
         .run(tauri::generate_context!())
         .expect("error while running tauri application");
@@ -41,6 +45,7 @@ use std::sync::Mutex;
 
 pub struct DbState {
     pub connection: Mutex<Connection>,
+    pub current_session: Mutex<Option<String>>,
 }
 
 mod commands;

@@ -9,6 +9,8 @@ pub mod product;
 pub mod role;
 pub mod sellable;
 pub mod service;
+pub mod session;
+pub mod setup;
 pub mod terminal;
 pub mod unit;
 pub mod user;
@@ -21,6 +23,7 @@ use thiserror::Error;
 use uuid::Uuid;
 
 const MIGRATION_1: &str = include_str!("../migrations/0001_foundation.sql");
+const MIGRATION_2: &str = include_str!("../migrations/0002_identity_alignment.sql");
 
 #[derive(Debug, Error)]
 pub enum CoreError {
@@ -30,6 +33,8 @@ pub enum CoreError {
     EmptyBusinessName,
     #[error("department name is required")]
     EmptyDepartmentName,
+    #[error("department not found")]
+    DepartmentNotFound,
     #[error("category name is required")]
     EmptyCategoryName,
     #[error("category not found")]
@@ -54,12 +59,18 @@ pub enum CoreError {
     PermissionNotFound,
     #[error("user not found")]
     UserNotFound,
+    #[error("session not found or no longer active")]
+    SessionNotFound,
     #[error("related records must belong to the same business")]
     CrossBusinessReference,
     #[error("location name is required")]
     EmptyLocationName,
     #[error("terminal name is required")]
     EmptyTerminalName,
+    #[error("terminal device key is required")]
+    EmptyDeviceKey,
+    #[error("terminal not found")]
+    TerminalNotFound,
     #[error("location not found")]
     LocationNotFound,
     #[error("business not found")]
@@ -111,18 +122,38 @@ fn configure(connection: &Connection) -> rusqlite::Result<()> {
 }
 
 fn migrate(connection: &Connection) -> Result<()> {
-    let version: i64 = connection.query_row("PRAGMA user_version", [], |row| row.get(0))?;
-    if version >= 1 {
-        return Ok(());
+    let mut version: i64 = connection.query_row("PRAGMA user_version", [], |row| row.get(0))?;
+    if version < 1 {
+        apply_migration(connection, 1, "foundation", "embedded-v1", MIGRATION_1)?;
+        version = 1;
     }
+    if version < 2 {
+        apply_migration(
+            connection,
+            2,
+            "identity-alignment",
+            "embedded-v2",
+            MIGRATION_2,
+        )?;
+    }
+    Ok(())
+}
+
+fn apply_migration(
+    connection: &Connection,
+    version: i64,
+    name: &str,
+    checksum: &str,
+    sql: &str,
+) -> Result<()> {
     connection.execute_batch("BEGIN IMMEDIATE")?;
     let result = (|| -> rusqlite::Result<()> {
-        connection.execute_batch(MIGRATION_1)?;
+        connection.execute_batch(sql)?;
         connection.execute(
-            "INSERT INTO schema_migrations(version,name,checksum) VALUES(1,'foundation','embedded-v1')",
-            [],
+            "INSERT INTO schema_migrations(version,name,checksum) VALUES(?1,?2,?3)",
+            (version, name, checksum),
         )?;
-        connection.pragma_update(None, "user_version", 1)?;
+        connection.pragma_update(None, "user_version", version)?;
         Ok(())
     })();
     match result {
@@ -153,7 +184,7 @@ mod tests {
             })
             .unwrap();
         assert_eq!(enabled, 1);
-        assert_eq!(version, 1);
+        assert_eq!(version, 2);
     }
 
     #[test]
@@ -203,5 +234,69 @@ mod tests {
             (Uuid::now_v7().to_string(), Uuid::now_v7().to_string()),
         );
         assert!(result.is_err());
+    }
+
+    #[test]
+    fn migrates_v1_terminal_identity_and_legacy_role_assignment() {
+        let db = Connection::open_in_memory().unwrap();
+        configure(&db).unwrap();
+        db.execute_batch(MIGRATION_1).unwrap();
+        db.execute(
+            "INSERT INTO schema_migrations(version,name,checksum)
+             VALUES(1,'foundation','embedded-v1')",
+            [],
+        )
+        .unwrap();
+        db.pragma_update(None, "user_version", 1).unwrap();
+
+        let business_id = Uuid::now_v7().to_string();
+        let role_id = Uuid::now_v7().to_string();
+        let user_id = Uuid::now_v7().to_string();
+        let terminal_id = Uuid::now_v7().to_string();
+        db.execute(
+            "INSERT INTO businesses(id,name) VALUES(?1,'Legacy Business')",
+            [&business_id],
+        )
+        .unwrap();
+        db.execute(
+            "INSERT INTO roles(id,business_id,name) VALUES(?1,?2,'Owner')",
+            (&role_id, &business_id),
+        )
+        .unwrap();
+        db.execute(
+            "INSERT INTO users(id,business_id,username,display_name,pin_hash,role_id)
+             VALUES(?1,?2,'owner','Owner','legacy',?3)",
+            (&user_id, &business_id, &role_id),
+        )
+        .unwrap();
+        db.execute(
+            "INSERT INTO terminals(id,business_id,name,code)
+             VALUES(?1,?2,'Main Till','TILL-1')",
+            (&terminal_id, &business_id),
+        )
+        .unwrap();
+
+        migrate(&db).unwrap();
+
+        let version: i64 = db
+            .query_row("PRAGMA user_version", [], |row| row.get(0))
+            .unwrap();
+        let device_key: String = db
+            .query_row(
+                "SELECT device_key FROM terminals WHERE id = ?1",
+                [&terminal_id],
+                |row| row.get(0),
+            )
+            .unwrap();
+        let assignments: i64 = db
+            .query_row(
+                "SELECT count(*) FROM user_roles WHERE user_id = ?1 AND role_id = ?2",
+                (&user_id, &role_id),
+                |row| row.get(0),
+            )
+            .unwrap();
+        assert_eq!(version, 2);
+        assert_eq!(device_key, "TILL-1");
+        assert_eq!(assignments, 1);
     }
 }

@@ -7,7 +7,7 @@ use std::{
 };
 
 pub const DATABASE_FILENAME: &str = "business.db";
-pub const LATEST_SCHEMA_VERSION: i64 = 1;
+pub const LATEST_SCHEMA_VERSION: i64 = 2;
 
 #[derive(Debug, Clone, PartialEq, Eq)]
 pub struct AppPaths {
