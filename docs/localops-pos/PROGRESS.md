@@ -28,7 +28,7 @@
 ## Current Phase Tasks
 
 - [x] Authoritative inventory movement ledger and cached balances
-- [ ] Receiving and purchase documents
+- [x] Receiving and purchase documents
 - [ ] Transfers, wastage, and stock counts
 - [ ] Negative-stock enforcement and inventory audit
 - [ ] Inventory command boundary, UI, and failure scenarios
@@ -56,7 +56,8 @@
 - Added exact conversions, packaging, and recipe consumption with 107 passing Rust tests and strict lint.
 - Completed Phase 4 with audited session-scoped commands, a signed-in catalogue workspace, and mixed-operation integration coverage.
 - Started Phase 5 with an authoritative, audited movement ledger, atomic balance cache, negative-stock enforcement, duplicate-reference protection, and reconciliation checks.
+- Added schema migration 0003 plus atomic supplier purchasing/receiving, exact packaging conversion, centralized monetary rounding, latest-cost updates, and stock movements.
 
 ## Next Step
 
-Build receiving and purchase documents on top of the movement ledger.
+Implement atomic transfers, wastage, and stock-count variance workflows.

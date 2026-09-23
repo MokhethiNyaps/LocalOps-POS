@@ -8,8 +8,10 @@ pub mod conversion;
 pub mod department;
 pub mod inventory;
 pub mod location;
+pub mod money;
 pub mod packaging;
 pub mod product;
+pub mod purchasing;
 pub mod recipe;
 pub mod role;
 pub mod sellable;
@@ -29,6 +31,7 @@ use uuid::Uuid;
 
 const MIGRATION_1: &str = include_str!("../migrations/0001_foundation.sql");
 const MIGRATION_2: &str = include_str!("../migrations/0002_identity_alignment.sql");
+const MIGRATION_3: &str = include_str!("../migrations/0003_inventory_integrity.sql");
 
 #[derive(Debug, Error)]
 pub enum CoreError {
@@ -72,6 +75,18 @@ pub enum CoreError {
     DuplicateInventoryMovement,
     #[error("inventory movement would make stock negative")]
     NegativeStock,
+    #[error("money calculation overflowed the supported range")]
+    MoneyOverflow,
+    #[error("supplier name is required")]
+    EmptySupplierName,
+    #[error("supplier not found")]
+    SupplierNotFound,
+    #[error("purchase must contain at least one item")]
+    EmptyPurchase,
+    #[error("purchase contains the same product more than once")]
+    DuplicatePurchaseProduct,
+    #[error("purchase total is invalid")]
+    InvalidPurchaseTotal,
     #[error("username is required")]
     EmptyUsername,
     #[error("display name is required")]
@@ -164,6 +179,16 @@ fn migrate(connection: &Connection) -> Result<()> {
             "embedded-v2",
             MIGRATION_2,
         )?;
+        version = 2;
+    }
+    if version < 3 {
+        apply_migration(
+            connection,
+            3,
+            "inventory-integrity",
+            "embedded-v3",
+            MIGRATION_3,
+        )?;
     }
     Ok(())
 }
@@ -213,7 +238,7 @@ mod tests {
             })
             .unwrap();
         assert_eq!(enabled, 1);
-        assert_eq!(version, 2);
+        assert_eq!(version, 3);
     }
 
     #[test]
@@ -324,7 +349,7 @@ mod tests {
                 |row| row.get(0),
             )
             .unwrap();
-        assert_eq!(version, 2);
+        assert_eq!(version, 3);
         assert_eq!(device_key, "TILL-1");
         assert_eq!(assignments, 1);
     }
