@@ -1,5 +1,4 @@
 #[cfg_attr(mobile, tauri::mobile_entry_point)]
-use localops_core::bootstrap;
 use rusqlite::Connection;
 pub fn run() {
     // Determine application data paths (Windows default location)
@@ -21,7 +20,9 @@ pub fn run() {
     };
 
     // Wrap the connection in a lightweight state object for Tauri
-    let db_state = DbState { connection: Mutex::new(connection) };
+    let db_state = DbState {
+        connection: Mutex::new(connection),
+    };
 
     tauri::Builder::default()
         .manage(db_state)

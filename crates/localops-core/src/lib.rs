@@ -1,9 +1,12 @@
+pub mod availability;
 pub mod bootstrap;
 pub mod business;
+pub mod catalogue;
 pub mod category;
 pub mod department;
 pub mod location;
 pub mod product;
+pub mod role;
 pub mod sellable;
 pub mod service;
 pub mod terminal;
@@ -13,8 +16,9 @@ pub mod user;
 use rusqlite::{Connection, OpenFlags};
 use std::{io, path::Path, time::SystemTimeError};
 use thiserror::Error;
+
+#[cfg(test)]
 use uuid::Uuid;
-use serde::Serialize;
 
 const MIGRATION_1: &str = include_str!("../migrations/0001_foundation.sql");
 
@@ -38,8 +42,20 @@ pub enum CoreError {
     EmptyUsername,
     #[error("display name is required")]
     EmptyDisplayName,
-    #[error("PIN must be at least 4 digits")]
-    PinTooShort,
+    #[error("PIN must contain 4 to 12 digits")]
+    InvalidPin,
+    #[error("PIN hashing failed: {0}")]
+    PinHashingFailed(String),
+    #[error("role name is required")]
+    EmptyRoleName,
+    #[error("role not found")]
+    RoleNotFound,
+    #[error("permission not found")]
+    PermissionNotFound,
+    #[error("user not found")]
+    UserNotFound,
+    #[error("related records must belong to the same business")]
+    CrossBusinessReference,
     #[error("location name is required")]
     EmptyLocationName,
     #[error("terminal name is required")]

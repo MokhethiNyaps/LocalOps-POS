@@ -10,7 +10,7 @@ pub struct Product {
     pub minimum_quantity_micros: i64,
 }
 
-pub fn create_product(
+pub(crate) fn create_product(
     conn: &Connection,
     sellable_id: &str,
     base_unit_id: &str,
@@ -31,9 +31,15 @@ pub fn create_product(
         return Err(CoreError::InvalidSellableKind);
     }
 
-    // Verify base unit exists
+    // Verify the base unit belongs to the same business as the sellable.
     let unit_exists: bool = conn
-        .query_row("SELECT 1 FROM units WHERE id = ?1", [base_unit_id], |row| row.get(0))
+        .query_row(
+            "SELECT 1
+             FROM units u JOIN sellable_items s ON s.business_id = u.business_id
+             WHERE u.id = ?1 AND s.id = ?2",
+            (base_unit_id, sellable_id),
+            |row| row.get(0),
+        )
         .unwrap_or(false);
 
     if !unit_exists {
@@ -83,9 +89,17 @@ pub fn update_product(
     let mut params_vec: Vec<String> = Vec::new();
 
     if let Some(uid) = base_unit_id {
-        // Verify unit exists
+        // Verify the unit belongs to the product's business.
         let unit_exists: bool = conn
-            .query_row("SELECT 1 FROM units WHERE id = ?1", [uid], |row| row.get(0))
+            .query_row(
+                "SELECT 1
+                 FROM units u
+                 JOIN sellable_items s ON s.business_id = u.business_id
+                 JOIN products p ON p.sellable_id = s.id
+                 WHERE u.id = ?1 AND p.sellable_id = ?2",
+                (uid, sellable_id),
+                |row| row.get(0),
+            )
             .unwrap_or(false);
 
         if !unit_exists {
@@ -116,10 +130,13 @@ pub fn update_product(
     }
 
     params_vec.push(sellable_id.to_string());
-    let sql = format!("UPDATE products SET {} WHERE sellable_id = ?", updates.join(", "));
-    
+    let sql = format!(
+        "UPDATE products SET {} WHERE sellable_id = ?",
+        updates.join(", ")
+    );
+
     let rows = conn.execute(&sql, rusqlite::params_from_iter(params_vec.iter()))?;
-    
+
     if rows == 0 {
         return Err(CoreError::SellableNotFound);
     }
@@ -136,12 +153,21 @@ mod tests {
     fn creates_product_with_required_fields() {
         let db = crate::open_memory_database().unwrap();
         let business_id = business::create_business(&db, "Test Business").unwrap();
-        
+
         let unit_id = unit::create_unit(&db, &business_id, "EA", "Each", "COUNT", 1, 1, 0).unwrap();
-        let sellable_id = sellable::create_sellable_item(&db, &business_id, "Coffee", "PRODUCT", 2500, None, true).unwrap();
-        
+        let sellable_id = sellable::create_sellable_item(
+            &db,
+            &business_id,
+            "Coffee",
+            "PRODUCT",
+            2500,
+            None,
+            true,
+        )
+        .unwrap();
+
         create_product(&db, &sellable_id, &unit_id, 1500, true, 1000000).unwrap();
-        
+
         let product = get_product(&db, &sellable_id).unwrap().unwrap();
         assert_eq!(product.sellable_id, sellable_id);
         assert_eq!(product.base_unit_id, unit_id);
@@ -154,10 +180,19 @@ mod tests {
     fn rejects_creation_for_service() {
         let db = crate::open_memory_database().unwrap();
         let business_id = business::create_business(&db, "Test Business").unwrap();
-        
+
         let unit_id = unit::create_unit(&db, &business_id, "HR", "Hour", "TIME", 60, 1, 2).unwrap();
-        let service_id = sellable::create_sellable_item(&db, &business_id, "Consultation", "SERVICE", 50000, None, false).unwrap();
-        
+        let service_id = sellable::create_sellable_item(
+            &db,
+            &business_id,
+            "Consultation",
+            "SERVICE",
+            50000,
+            None,
+            false,
+        )
+        .unwrap();
+
         assert!(matches!(
             create_product(&db, &service_id, &unit_id, 0, false, 0),
             Err(CoreError::InvalidSellableKind)
@@ -168,11 +203,18 @@ mod tests {
     fn rejects_creation_for_nonexistent_sellable() {
         let db = crate::open_memory_database().unwrap();
         let business_id = business::create_business(&db, "Test Business").unwrap();
-        
+
         let unit_id = unit::create_unit(&db, &business_id, "EA", "Each", "COUNT", 1, 1, 0).unwrap();
-        
+
         assert!(matches!(
-            create_product(&db, &uuid::Uuid::now_v7().to_string(), &unit_id, 100, true, 0),
+            create_product(
+                &db,
+                &uuid::Uuid::now_v7().to_string(),
+                &unit_id,
+                100,
+                true,
+                0
+            ),
             Err(CoreError::SellableNotFound)
         ));
     }
@@ -181,11 +223,44 @@ mod tests {
     fn rejects_creation_with_nonexistent_unit() {
         let db = crate::open_memory_database().unwrap();
         let business_id = business::create_business(&db, "Test Business").unwrap();
-        
-        let sellable_id = sellable::create_sellable_item(&db, &business_id, "Product", "PRODUCT", 100, None, true).unwrap();
-        
+
+        let sellable_id = sellable::create_sellable_item(
+            &db,
+            &business_id,
+            "Product",
+            "PRODUCT",
+            100,
+            None,
+            true,
+        )
+        .unwrap();
+
         assert!(matches!(
-            create_product(&db, &sellable_id, &uuid::Uuid::now_v7().to_string(), 100, true, 0),
+            create_product(
+                &db,
+                &sellable_id,
+                &uuid::Uuid::now_v7().to_string(),
+                100,
+                true,
+                0
+            ),
+            Err(CoreError::UnitNotFound)
+        ));
+    }
+
+    #[test]
+    fn rejects_unit_from_another_business() {
+        let db = crate::open_memory_database().unwrap();
+        let business_a = business::create_business(&db, "Business A").unwrap();
+        let business_b = business::create_business(&db, "Business B").unwrap();
+        let foreign_unit =
+            unit::create_unit(&db, &business_b, "EA", "Each", "COUNT", 1, 1, 0).unwrap();
+        let sellable_id =
+            sellable::create_sellable_item(&db, &business_a, "Product", "PRODUCT", 100, None, true)
+                .unwrap();
+
+        assert!(matches!(
+            create_product(&db, &sellable_id, &foreign_unit, 50, true, 0),
             Err(CoreError::UnitNotFound)
         ));
     }
@@ -194,15 +269,34 @@ mod tests {
     fn updates_product_details() {
         let db = crate::open_memory_database().unwrap();
         let business_id = business::create_business(&db, "Test Business").unwrap();
-        
-        let unit1_id = unit::create_unit(&db, &business_id, "EA", "Each", "COUNT", 1, 1, 0).unwrap();
-        let unit2_id = unit::create_unit(&db, &business_id, "BOX", "Box", "COUNT", 12, 1, 0).unwrap();
-        let sellable_id = sellable::create_sellable_item(&db, &business_id, "Widget", "PRODUCT", 5000, None, true).unwrap();
-        
+
+        let unit1_id =
+            unit::create_unit(&db, &business_id, "EA", "Each", "COUNT", 1, 1, 0).unwrap();
+        let unit2_id =
+            unit::create_unit(&db, &business_id, "BOX", "Box", "COUNT", 12, 1, 0).unwrap();
+        let sellable_id = sellable::create_sellable_item(
+            &db,
+            &business_id,
+            "Widget",
+            "PRODUCT",
+            5000,
+            None,
+            true,
+        )
+        .unwrap();
+
         create_product(&db, &sellable_id, &unit1_id, 3000, true, 500000).unwrap();
-        
-        update_product(&db, &sellable_id, Some(&unit2_id), Some(4000), Some(false), Some(1000000)).unwrap();
-        
+
+        update_product(
+            &db,
+            &sellable_id,
+            Some(&unit2_id),
+            Some(4000),
+            Some(false),
+            Some(1000000),
+        )
+        .unwrap();
+
         let product = get_product(&db, &sellable_id).unwrap().unwrap();
         assert_eq!(product.base_unit_id, unit2_id);
         assert_eq!(product.cost_minor, 4000);
@@ -213,7 +307,7 @@ mod tests {
     #[test]
     fn returns_none_for_nonexistent_product() {
         let db = crate::open_memory_database().unwrap();
-        
+
         let result = get_product(&db, &uuid::Uuid::now_v7().to_string()).unwrap();
         assert!(result.is_none());
     }

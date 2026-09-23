@@ -15,6 +15,7 @@ pub struct Unit {
     pub active: bool,
 }
 
+#[allow(clippy::too_many_arguments)]
 pub fn create_unit(
     conn: &Connection,
     business_id: &str,
@@ -52,7 +53,7 @@ pub fn create_unit(
     }
 
     // Validate decimal places
-    if decimal_places < 0 || decimal_places > 6 {
+    if !(0..=6).contains(&decimal_places) {
         return Err(CoreError::Database(rusqlite::Error::SqliteFailure(
             rusqlite::ffi::Error::new(rusqlite::ffi::SQLITE_CONSTRAINT_CHECK),
             Some("decimal places must be 0-6".to_string()),
@@ -130,6 +131,7 @@ pub fn get_units_by_business(
     Ok(units)
 }
 
+#[allow(clippy::too_many_arguments)]
 pub fn update_unit(
     conn: &Connection,
     id: &str,
@@ -185,7 +187,7 @@ pub fn update_unit(
     }
 
     if let Some(dp) = decimal_places {
-        if dp < 0 || dp > 6 {
+        if !(0..=6).contains(&dp) {
             return Err(CoreError::Database(rusqlite::Error::SqliteFailure(
                 rusqlite::ffi::Error::new(rusqlite::ffi::SQLITE_CONSTRAINT_CHECK),
                 Some("decimal places must be 0-6".to_string()),
@@ -201,9 +203,9 @@ pub fn update_unit(
 
     params_vec.push(id.to_string());
     let sql = format!("UPDATE units SET {} WHERE id = ?", updates.join(", "));
-    
+
     let rows = conn.execute(&sql, rusqlite::params_from_iter(params_vec.iter()))?;
-    
+
     if rows == 0 {
         return Err(CoreError::UnitNotFound);
     }
@@ -213,9 +215,9 @@ pub fn update_unit(
 
 pub fn deactivate_unit(conn: &Connection, id: &str) -> Result<()> {
     let result = conn.execute("UPDATE units SET active = 0 WHERE id = ?1", [id]);
-    
+
     match result {
-        Ok(rows) if rows == 0 => Err(CoreError::UnitNotFound),
+        Ok(0) => Err(CoreError::UnitNotFound),
         Ok(_) => Ok(()),
         Err(e) => Err(e.into()),
     }
@@ -230,10 +232,10 @@ mod tests {
     fn creates_unit_with_required_fields() {
         let db = crate::open_memory_database().unwrap();
         let business_id = business::create_business(&db, "Test Business").unwrap();
-        
+
         let id = create_unit(&db, &business_id, "PCS", "Piece", "quantity", 1, 1, 0).unwrap();
         assert_eq!(Uuid::parse_str(&id).unwrap().get_version_num(), 7);
-        
+
         let unit = get_unit(&db, &id).unwrap().unwrap();
         assert_eq!(unit.code, "PCS");
         assert_eq!(unit.name, "Piece");
@@ -248,7 +250,7 @@ mod tests {
     fn rejects_empty_unit_code() {
         let db = crate::open_memory_database().unwrap();
         let business_id = business::create_business(&db, "Test Business").unwrap();
-        
+
         assert!(matches!(
             create_unit(&db, &business_id, "  ", "Piece", "quantity", 1, 1, 0),
             Err(CoreError::EmptyUnitCode)
@@ -258,9 +260,18 @@ mod tests {
     #[test]
     fn validates_business_exists() {
         let db = crate::open_memory_database().unwrap();
-        
+
         assert!(matches!(
-            create_unit(&db, &Uuid::now_v7().to_string(), "PCS", "Piece", "quantity", 1, 1, 0),
+            create_unit(
+                &db,
+                &Uuid::now_v7().to_string(),
+                "PCS",
+                "Piece",
+                "quantity",
+                1,
+                1,
+                0
+            ),
             Err(CoreError::BusinessNotFound)
         ));
     }
@@ -269,11 +280,11 @@ mod tests {
     fn lists_units_ordered_by_code() {
         let db = crate::open_memory_database().unwrap();
         let business_id = business::create_business(&db, "Test Business").unwrap();
-        
+
         create_unit(&db, &business_id, "ZEBRA", "Zebra", "quantity", 1, 1, 0).unwrap();
         create_unit(&db, &business_id, "APPLE", "Apple", "quantity", 1, 1, 0).unwrap();
         create_unit(&db, &business_id, "MANGO", "Mango", "quantity", 1, 1, 0).unwrap();
-        
+
         let units = get_units_by_business(&db, &business_id, true).unwrap();
         assert_eq!(units.len(), 3);
         assert_eq!(units[0].code, "APPLE");
@@ -285,15 +296,25 @@ mod tests {
     fn filters_inactive_units() {
         let db = crate::open_memory_database().unwrap();
         let business_id = business::create_business(&db, "Test Business").unwrap();
-        
+
         let id1 = create_unit(&db, &business_id, "ACTIVE", "Active", "quantity", 1, 1, 0).unwrap();
-        let id2 = create_unit(&db, &business_id, "INACTIVE", "Inactive", "quantity", 1, 1, 0).unwrap();
+        let id2 = create_unit(
+            &db,
+            &business_id,
+            "INACTIVE",
+            "Inactive",
+            "quantity",
+            1,
+            1,
+            0,
+        )
+        .unwrap();
         deactivate_unit(&db, &id2).unwrap();
-        
+
         let active = get_units_by_business(&db, &business_id, true).unwrap();
         assert_eq!(active.len(), 1);
         assert_eq!(active[0].id, id1);
-        
+
         let all = get_units_by_business(&db, &business_id, false).unwrap();
         assert_eq!(all.len(), 2);
     }
@@ -302,11 +323,21 @@ mod tests {
     fn updates_unit_details() {
         let db = crate::open_memory_database().unwrap();
         let business_id = business::create_business(&db, "Test Business").unwrap();
-        
+
         let id = create_unit(&db, &business_id, "OLD", "Old Name", "quantity", 1, 1, 0).unwrap();
-        
-        update_unit(&db, &id, Some("NEW"), Some("New Name"), Some("weight"), Some(1000), Some(1), Some(3)).unwrap();
-        
+
+        update_unit(
+            &db,
+            &id,
+            Some("NEW"),
+            Some("New Name"),
+            Some("weight"),
+            Some(1000),
+            Some(1),
+            Some(3),
+        )
+        .unwrap();
+
         let unit = get_unit(&db, &id).unwrap().unwrap();
         assert_eq!(unit.code, "NEW");
         assert_eq!(unit.name, "New Name");
@@ -321,14 +352,14 @@ mod tests {
         let db = crate::open_memory_database().unwrap();
         let biz1 = business::create_business(&db, "Business 1").unwrap();
         let biz2 = business::create_business(&db, "Business 2").unwrap();
-        
+
         let id1 = create_unit(&db, &biz1, "PCS1", "Piece 1", "quantity", 1, 1, 0).unwrap();
         let id2 = create_unit(&db, &biz2, "PCS2", "Piece 2", "quantity", 1, 1, 0).unwrap();
-        
+
         let units1 = get_units_by_business(&db, &biz1, false).unwrap();
         assert_eq!(units1.len(), 1);
         assert_eq!(units1[0].id, id1);
-        
+
         let units2 = get_units_by_business(&db, &biz2, false).unwrap();
         assert_eq!(units2.len(), 1);
         assert_eq!(units2[0].id, id2);
@@ -338,10 +369,10 @@ mod tests {
     fn creates_unit_with_fractional_scale() {
         let db = crate::open_memory_database().unwrap();
         let business_id = business::create_business(&db, "Test Business").unwrap();
-        
+
         // Create a unit where 1 base unit = 0.001 of this unit (e.g., milligrams)
         let id = create_unit(&db, &business_id, "MG", "Milligram", "weight", 1, 1000, 3).unwrap();
-        
+
         let unit = get_unit(&db, &id).unwrap().unwrap();
         assert_eq!(unit.code, "MG");
         assert_eq!(unit.scale_num, 1);

@@ -17,7 +17,7 @@ pub struct SellableItem {
     pub active: bool,
 }
 
-pub fn create_sellable_item(
+pub(crate) fn create_sellable_item(
     conn: &Connection,
     business_id: &str,
     name: &str,
@@ -37,7 +37,11 @@ pub fn create_sellable_item(
 
     // Verify business exists
     let exists: bool = conn
-        .query_row("SELECT 1 FROM businesses WHERE id = ?1", [business_id], |row| row.get(0))
+        .query_row(
+            "SELECT 1 FROM businesses WHERE id = ?1",
+            [business_id],
+            |row| row.get(0),
+        )
         .unwrap_or(false);
 
     if !exists {
@@ -143,8 +147,10 @@ pub fn update_sellable_item(
     taxable: Option<bool>,
     category_id: Option<Option<&str>>,
 ) -> Result<()> {
+    use rusqlite::types::Value;
+
     let mut updates = Vec::new();
-    let mut params_vec: Vec<String> = Vec::new();
+    let mut params_vec: Vec<Value> = Vec::new();
 
     if let Some(n) = name {
         let trimmed = n.trim();
@@ -152,24 +158,39 @@ pub fn update_sellable_item(
             return Err(CoreError::EmptySellableName);
         }
         updates.push("name = ?");
-        params_vec.push(trimmed.to_string());
+        params_vec.push(Value::Text(trimmed.to_string()));
     }
 
     if let Some(p) = price_minor {
         updates.push("price_minor = ?");
-        params_vec.push(p.to_string());
+        params_vec.push(Value::Integer(p));
     }
 
     if let Some(t) = taxable {
         updates.push("taxable = ?");
-        params_vec.push(if t { "1".to_string() } else { "0".to_string() });
+        params_vec.push(Value::Integer(i64::from(t)));
     }
 
     if let Some(cid) = category_id {
         updates.push("category_id = ?");
         match cid {
-            Some(actual_cid) => params_vec.push(actual_cid.to_string()),
-            None => params_vec.push(String::new()),
+            Some(actual_cid) => {
+                let same_business = conn
+                    .query_row(
+                        "SELECT 1
+                         FROM sellable_items s
+                         JOIN categories c ON c.business_id = s.business_id
+                         WHERE s.id = ?1 AND c.id = ?2",
+                        (id, actual_cid),
+                        |_| Ok(()),
+                    )
+                    .is_ok();
+                if !same_business {
+                    return Err(CoreError::CrossBusinessReference);
+                }
+                params_vec.push(Value::Text(actual_cid.to_string()));
+            }
+            None => params_vec.push(Value::Null),
         }
     }
 
@@ -177,11 +198,14 @@ pub fn update_sellable_item(
         return Ok(());
     }
 
-    params_vec.push(id.to_string());
-    let sql = format!("UPDATE sellable_items SET {} WHERE id = ?", updates.join(", "));
-    
+    params_vec.push(Value::Text(id.to_string()));
+    let sql = format!(
+        "UPDATE sellable_items SET {} WHERE id = ?",
+        updates.join(", ")
+    );
+
     let rows = conn.execute(&sql, rusqlite::params_from_iter(params_vec.iter()))?;
-    
+
     if rows == 0 {
         return Err(CoreError::SellableNotFound);
     }
@@ -191,9 +215,9 @@ pub fn update_sellable_item(
 
 pub fn deactivate_sellable_item(conn: &Connection, id: &str) -> Result<()> {
     let result = conn.execute("UPDATE sellable_items SET active = 0 WHERE id = ?1", [id]);
-    
+
     match result {
-        Ok(rows) if rows == 0 => Err(CoreError::SellableNotFound),
+        Ok(0) => Err(CoreError::SellableNotFound),
         Ok(_) => Ok(()),
         Err(e) => Err(e.into()),
     }
@@ -208,10 +232,11 @@ mod tests {
     fn creates_product_with_required_fields() {
         let db = crate::open_memory_database().unwrap();
         let business_id = business::create_business(&db, "Test Business").unwrap();
-        
-        let id = create_sellable_item(&db, &business_id, "Coffee", "PRODUCT", 2500, None, true).unwrap();
+
+        let id =
+            create_sellable_item(&db, &business_id, "Coffee", "PRODUCT", 2500, None, true).unwrap();
         assert_eq!(Uuid::parse_str(&id).unwrap().get_version_num(), 7);
-        
+
         let item = get_sellable_item(&db, &id).unwrap().unwrap();
         assert_eq!(item.name, "Coffee");
         assert_eq!(item.kind, "PRODUCT");
@@ -224,9 +249,18 @@ mod tests {
     fn creates_service_with_required_fields() {
         let db = crate::open_memory_database().unwrap();
         let business_id = business::create_business(&db, "Test Business").unwrap();
-        
-        let id = create_sellable_item(&db, &business_id, "Consultation", "SERVICE", 50000, None, false).unwrap();
-        
+
+        let id = create_sellable_item(
+            &db,
+            &business_id,
+            "Consultation",
+            "SERVICE",
+            50000,
+            None,
+            false,
+        )
+        .unwrap();
+
         let item = get_sellable_item(&db, &id).unwrap().unwrap();
         assert_eq!(item.kind, "SERVICE");
         assert_eq!(item.price_minor, 50000);
@@ -237,7 +271,7 @@ mod tests {
     fn rejects_empty_sellable_name() {
         let db = crate::open_memory_database().unwrap();
         let business_id = business::create_business(&db, "Test Business").unwrap();
-        
+
         assert!(matches!(
             create_sellable_item(&db, &business_id, "  ", "PRODUCT", 100, None, true),
             Err(CoreError::EmptySellableName)
@@ -248,7 +282,7 @@ mod tests {
     fn rejects_invalid_kind() {
         let db = crate::open_memory_database().unwrap();
         let business_id = business::create_business(&db, "Test Business").unwrap();
-        
+
         assert!(matches!(
             create_sellable_item(&db, &business_id, "Test", "INVALID", 100, None, true),
             Err(CoreError::InvalidSellableKind)
@@ -258,9 +292,17 @@ mod tests {
     #[test]
     fn validates_business_exists() {
         let db = crate::open_memory_database().unwrap();
-        
+
         assert!(matches!(
-            create_sellable_item(&db, &Uuid::now_v7().to_string(), "Test", "PRODUCT", 100, None, true),
+            create_sellable_item(
+                &db,
+                &Uuid::now_v7().to_string(),
+                "Test",
+                "PRODUCT",
+                100,
+                None,
+                true
+            ),
             Err(CoreError::BusinessNotFound)
         ));
     }
@@ -270,9 +312,18 @@ mod tests {
         let db = crate::open_memory_database().unwrap();
         let business_id = business::create_business(&db, "Test Business").unwrap();
         let cat_id = category::create_category(&db, &business_id, "Beverages", None).unwrap();
-        
-        let id = create_sellable_item(&db, &business_id, "Tea", "PRODUCT", 1500, Some(&cat_id), true).unwrap();
-        
+
+        let id = create_sellable_item(
+            &db,
+            &business_id,
+            "Tea",
+            "PRODUCT",
+            1500,
+            Some(&cat_id),
+            true,
+        )
+        .unwrap();
+
         let item = get_sellable_item(&db, &id).unwrap().unwrap();
         assert_eq!(item.category_id, Some(cat_id));
     }
@@ -281,11 +332,11 @@ mod tests {
     fn lists_sellable_items_ordered_by_name() {
         let db = crate::open_memory_database().unwrap();
         let business_id = business::create_business(&db, "Test Business").unwrap();
-        
+
         create_sellable_item(&db, &business_id, "Zebra", "PRODUCT", 100, None, true).unwrap();
         create_sellable_item(&db, &business_id, "Apple", "PRODUCT", 200, None, true).unwrap();
         create_sellable_item(&db, &business_id, "Mango", "SERVICE", 300, None, false).unwrap();
-        
+
         let items = get_sellable_items_by_business(&db, &business_id, true).unwrap();
         assert_eq!(items.len(), 3);
         assert_eq!(items[0].name, "Apple");
@@ -297,15 +348,17 @@ mod tests {
     fn filters_inactive_sellable_items() {
         let db = crate::open_memory_database().unwrap();
         let business_id = business::create_business(&db, "Test Business").unwrap();
-        
-        let id1 = create_sellable_item(&db, &business_id, "Active", "PRODUCT", 100, None, true).unwrap();
-        let id2 = create_sellable_item(&db, &business_id, "Inactive", "PRODUCT", 200, None, true).unwrap();
+
+        let id1 =
+            create_sellable_item(&db, &business_id, "Active", "PRODUCT", 100, None, true).unwrap();
+        let id2 = create_sellable_item(&db, &business_id, "Inactive", "PRODUCT", 200, None, true)
+            .unwrap();
         deactivate_sellable_item(&db, &id2).unwrap();
-        
+
         let active = get_sellable_items_by_business(&db, &business_id, true).unwrap();
         assert_eq!(active.len(), 1);
         assert_eq!(active[0].id, id1);
-        
+
         let all = get_sellable_items_by_business(&db, &business_id, false).unwrap();
         assert_eq!(all.len(), 2);
     }
@@ -314,11 +367,12 @@ mod tests {
     fn updates_sellable_item_details() {
         let db = crate::open_memory_database().unwrap();
         let business_id = business::create_business(&db, "Test Business").unwrap();
-        
-        let id = create_sellable_item(&db, &business_id, "Old Name", "PRODUCT", 100, None, true).unwrap();
-        
+
+        let id = create_sellable_item(&db, &business_id, "Old Name", "PRODUCT", 100, None, true)
+            .unwrap();
+
         update_sellable_item(&db, &id, Some("New Name"), Some(250), Some(false), None).unwrap();
-        
+
         let item = get_sellable_item(&db, &id).unwrap().unwrap();
         assert_eq!(item.name, "New Name");
         assert_eq!(item.price_minor, 250);
@@ -326,18 +380,50 @@ mod tests {
     }
 
     #[test]
+    fn clears_category_and_rejects_foreign_category() {
+        let db = crate::open_memory_database().unwrap();
+        let business_a = business::create_business(&db, "Business A").unwrap();
+        let business_b = business::create_business(&db, "Business B").unwrap();
+        let category_a = category::create_category(&db, &business_a, "Local", None).unwrap();
+        let category_b = category::create_category(&db, &business_b, "Foreign", None).unwrap();
+        let id = create_sellable_item(
+            &db,
+            &business_a,
+            "Item",
+            "PRODUCT",
+            100,
+            Some(&category_a),
+            true,
+        )
+        .unwrap();
+
+        update_sellable_item(&db, &id, None, None, None, Some(None)).unwrap();
+        assert!(
+            get_sellable_item(&db, &id)
+                .unwrap()
+                .unwrap()
+                .category_id
+                .is_none()
+        );
+        assert!(matches!(
+            update_sellable_item(&db, &id, None, None, None, Some(Some(&category_b))),
+            Err(CoreError::CrossBusinessReference)
+        ));
+    }
+
+    #[test]
     fn isolates_sellable_items_by_business() {
         let db = crate::open_memory_database().unwrap();
         let biz1 = business::create_business(&db, "Business 1").unwrap();
         let biz2 = business::create_business(&db, "Business 2").unwrap();
-        
+
         let id1 = create_sellable_item(&db, &biz1, "Item1", "PRODUCT", 100, None, true).unwrap();
         let id2 = create_sellable_item(&db, &biz2, "Item2", "PRODUCT", 200, None, true).unwrap();
-        
+
         let items1 = get_sellable_items_by_business(&db, &biz1, false).unwrap();
         assert_eq!(items1.len(), 1);
         assert_eq!(items1[0].id, id1);
-        
+
         let items2 = get_sellable_items_by_business(&db, &biz2, false).unwrap();
         assert_eq!(items2.len(), 1);
         assert_eq!(items2[0].id, id2);

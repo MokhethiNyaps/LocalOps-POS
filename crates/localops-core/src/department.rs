@@ -12,7 +12,12 @@ pub struct Department {
 }
 
 /// Create a new department
-pub fn create_department(connection: &Connection, business_id: &str, name: &str, description: Option<&str>) -> Result<String> {
+pub fn create_department(
+    connection: &Connection,
+    business_id: &str,
+    name: &str,
+    description: Option<&str>,
+) -> Result<String> {
     let name = name.trim();
     if name.is_empty() {
         return Err(CoreError::EmptyDepartmentName);
@@ -27,17 +32,18 @@ pub fn create_department(connection: &Connection, business_id: &str, name: &str,
 
 /// Get a department by ID
 pub fn get_department(connection: &Connection, id: &str) -> Result<Option<Department>> {
-    let mut stmt = connection.prepare(
-        "SELECT id, business_id, name, description FROM departments WHERE id = ?1"
-    )?;
-    let dept = stmt.query_row([&id], |row| {
-        Ok(Department {
-            id: row.get(0)?,
-            business_id: row.get(1)?,
-            name: row.get(2)?,
-            description: row.get(3)?,
+    let mut stmt = connection
+        .prepare("SELECT id, business_id, name, description FROM departments WHERE id = ?1")?;
+    let dept = stmt
+        .query_row([&id], |row| {
+            Ok(Department {
+                id: row.get(0)?,
+                business_id: row.get(1)?,
+                name: row.get(2)?,
+                description: row.get(3)?,
+            })
         })
-    }).optional()?;
+        .optional()?;
     Ok(dept)
 }
 
@@ -54,7 +60,9 @@ pub fn list_departments(connection: &Connection, business_id: &str) -> Result<Ve
             description: row.get(3)?,
         })
     })?;
-    depts.collect::<std::result::Result<Vec<_>, _>>().map_err(Into::into)
+    depts
+        .collect::<std::result::Result<Vec<_>, _>>()
+        .map_err(Into::into)
 }
 
 /// Update department name
@@ -63,33 +71,27 @@ pub fn update_department_name(connection: &Connection, id: &str, name: &str) -> 
     if name.is_empty() {
         return Err(CoreError::EmptyDepartmentName);
     }
-    connection.execute(
-        "UPDATE departments SET name = ?1 WHERE id = ?2",
-        (name, id),
-    )?;
+    connection.execute("UPDATE departments SET name = ?1 WHERE id = ?2", (name, id))?;
     Ok(())
 }
 
 /// Deactivate a department
 pub fn deactivate_department(connection: &Connection, id: &str) -> Result<()> {
-    connection.execute(
-        "UPDATE departments SET active = 0 WHERE id = ?1",
-        [id],
-    )?;
+    connection.execute("UPDATE departments SET active = 0 WHERE id = ?1", [id])?;
     Ok(())
 }
 
 #[cfg(test)]
 mod tests {
     use super::*;
-    use crate::{open_memory_database, business};
+    use crate::{business, open_memory_database};
 
     #[test]
     fn creates_department() {
         let db = open_memory_database().unwrap();
         let business_id = business::create_business(&db, "Test Business").unwrap();
         let id = create_department(&db, &business_id, "Bar", Some("Beverage department")).unwrap();
-        
+
         let dept = get_department(&db, &id).unwrap().unwrap();
         assert_eq!(dept.name, "Bar");
         assert_eq!(dept.business_id, business_id);
@@ -111,7 +113,7 @@ mod tests {
         let db = open_memory_database().unwrap();
         let business_id = business::create_business(&db, "Test Business").unwrap();
         create_department(&db, &business_id, "Bar", None).unwrap();
-        
+
         assert!(matches!(
             create_department(&db, &business_id, "Bar", None),
             Err(CoreError::Database(_))
@@ -124,7 +126,7 @@ mod tests {
         let business_id = business::create_business(&db, "Test Business").unwrap();
         create_department(&db, &business_id, "Bar", None).unwrap();
         create_department(&db, &business_id, "Kitchen", None).unwrap();
-        
+
         let depts = list_departments(&db, &business_id).unwrap();
         assert_eq!(depts.len(), 2);
     }
@@ -134,7 +136,7 @@ mod tests {
         let db = open_memory_database().unwrap();
         let business_id = business::create_business(&db, "Test Business").unwrap();
         let id = create_department(&db, &business_id, "Old Name", None).unwrap();
-        
+
         update_department_name(&db, &id, "New Name").unwrap();
         let dept = get_department(&db, &id).unwrap().unwrap();
         assert_eq!(dept.name, "New Name");
@@ -145,7 +147,7 @@ mod tests {
         let db = open_memory_database().unwrap();
         let business_id = business::create_business(&db, "Test Business").unwrap();
         let id = create_department(&db, &business_id, "Bar", None).unwrap();
-        
+
         deactivate_department(&db, &id).unwrap();
         let depts = list_departments(&db, &business_id).unwrap();
         assert_eq!(depts.len(), 0);
