@@ -60,8 +60,8 @@ Success: products and services can be configured, assigned, packaged, and compos
 
 - [x] Authoritative movement ledger and cached balances
 - [x] Receiving and purchases
-- [ ] Transfers, wastage, and stock counts
-- [ ] Negative-stock enforcement and audit
+- [x] Transfers, wastage, and stock counts
+- [x] Negative-stock enforcement and audit
 - [ ] Inventory UI and failure scenarios
 
 Success: every stock change is traceable and balances reconcile to movements.

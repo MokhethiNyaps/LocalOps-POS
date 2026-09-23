@@ -29,8 +29,8 @@
 
 - [x] Authoritative inventory movement ledger and cached balances
 - [x] Receiving and purchase documents
-- [ ] Transfers, wastage, and stock counts
-- [ ] Negative-stock enforcement and inventory audit
+- [x] Transfers, wastage, and stock counts
+- [x] Negative-stock enforcement and inventory audit
 - [ ] Inventory command boundary, UI, and failure scenarios
 
 ## Decisions
@@ -57,7 +57,8 @@
 - Completed Phase 4 with audited session-scoped commands, a signed-in catalogue workspace, and mixed-operation integration coverage.
 - Started Phase 5 with an authoritative, audited movement ledger, atomic balance cache, negative-stock enforcement, duplicate-reference protection, and reconciliation checks.
 - Added schema migration 0003 plus atomic supplier purchasing/receiving, exact packaging conversion, centralized monetary rounding, latest-cost updates, and stock movements.
+- Added migration 0004 and atomic transfers, wastage/damage, and stock counts that preserve expected/count/variance history, including zero-variance counts.
 
 ## Next Step
 
-Implement atomic transfers, wastage, and stock-count variance workflows.
+Expose inventory workflows through session-scoped commands and build the inventory workspace.

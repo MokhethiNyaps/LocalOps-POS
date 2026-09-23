@@ -7,6 +7,7 @@ pub mod category;
 pub mod conversion;
 pub mod department;
 pub mod inventory;
+pub mod inventory_operations;
 pub mod location;
 pub mod money;
 pub mod packaging;
@@ -32,6 +33,7 @@ use uuid::Uuid;
 const MIGRATION_1: &str = include_str!("../migrations/0001_foundation.sql");
 const MIGRATION_2: &str = include_str!("../migrations/0002_identity_alignment.sql");
 const MIGRATION_3: &str = include_str!("../migrations/0003_inventory_integrity.sql");
+const MIGRATION_4: &str = include_str!("../migrations/0004_stock_count_zero_variance.sql");
 
 #[derive(Debug, Error)]
 pub enum CoreError {
@@ -87,6 +89,16 @@ pub enum CoreError {
     DuplicatePurchaseProduct,
     #[error("purchase total is invalid")]
     InvalidPurchaseTotal,
+    #[error("inventory operation must contain at least one item")]
+    EmptyInventoryOperation,
+    #[error("inventory operation contains the same product more than once")]
+    DuplicateInventoryProduct,
+    #[error("inventory transfer locations must be different")]
+    InvalidTransferLocations,
+    #[error("wastage reason is required")]
+    EmptyWastageReason,
+    #[error("stock count quantity must not be negative")]
+    InvalidStockCountQuantity,
     #[error("username is required")]
     EmptyUsername,
     #[error("display name is required")]
@@ -189,6 +201,16 @@ fn migrate(connection: &Connection) -> Result<()> {
             "embedded-v3",
             MIGRATION_3,
         )?;
+        version = 3;
+    }
+    if version < 4 {
+        apply_migration(
+            connection,
+            4,
+            "stock-count-zero-variance",
+            "embedded-v4",
+            MIGRATION_4,
+        )?;
     }
     Ok(())
 }
@@ -238,7 +260,7 @@ mod tests {
             })
             .unwrap();
         assert_eq!(enabled, 1);
-        assert_eq!(version, 3);
+        assert_eq!(version, 4);
     }
 
     #[test]
@@ -349,7 +371,7 @@ mod tests {
                 |row| row.get(0),
             )
             .unwrap();
-        assert_eq!(version, 3);
+        assert_eq!(version, 4);
         assert_eq!(device_key, "TILL-1");
         assert_eq!(assignments, 1);
     }
