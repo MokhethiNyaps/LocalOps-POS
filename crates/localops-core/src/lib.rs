@@ -6,6 +6,7 @@ pub mod catalogue;
 pub mod category;
 pub mod conversion;
 pub mod department;
+pub mod inventory;
 pub mod location;
 pub mod packaging;
 pub mod product;
@@ -59,6 +60,18 @@ pub enum CoreError {
     RecipeNotFound,
     #[error("recipe quantity must be greater than zero")]
     InvalidRecipeQuantity,
+    #[error("inventory movement quantity must not be zero")]
+    InvalidInventoryQuantity,
+    #[error("invalid inventory movement type")]
+    InvalidInventoryMovementType,
+    #[error("inventory movement quantity has the wrong sign for its type")]
+    InvalidInventoryMovementSign,
+    #[error("product is not configured for stock tracking")]
+    StockNotTracked,
+    #[error("inventory movement has already been posted for this reference")]
+    DuplicateInventoryMovement,
+    #[error("inventory movement would make stock negative")]
+    NegativeStock,
     #[error("username is required")]
     EmptyUsername,
     #[error("display name is required")]

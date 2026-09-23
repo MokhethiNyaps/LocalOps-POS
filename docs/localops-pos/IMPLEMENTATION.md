@@ -58,7 +58,7 @@ Success: products and services can be configured, assigned, packaged, and compos
 
 ## Phase 5: Inventory
 
-- [ ] Authoritative movement ledger and cached balances
+- [x] Authoritative movement ledger and cached balances
 - [ ] Receiving and purchases
 - [ ] Transfers, wastage, and stock counts
 - [ ] Negative-stock enforcement and audit
