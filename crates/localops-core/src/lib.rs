@@ -11,14 +11,17 @@ pub mod inventory_operations;
 pub mod location;
 pub mod money;
 pub mod packaging;
+pub mod payment;
 pub mod product;
 pub mod purchasing;
 pub mod recipe;
 pub mod role;
+pub mod sales;
 pub mod sellable;
 pub mod service;
 pub mod session;
 pub mod setup;
+pub mod shift;
 pub mod terminal;
 pub mod unit;
 pub mod user;
@@ -99,6 +102,28 @@ pub enum CoreError {
     EmptyWastageReason,
     #[error("stock count quantity must not be negative")]
     InvalidStockCountQuantity,
+    #[error("sale must contain at least one item")]
+    EmptySale,
+    #[error("sale contains a duplicate item for the same department")]
+    DuplicateSaleItem,
+    #[error("sellable item is not available in the selected department")]
+    SaleItemNotAvailable,
+    #[error("sale not found")]
+    SaleNotFound,
+    #[error("sale item discount exceeds its value")]
+    InvalidSaleDiscount,
+    #[error("completed sale payments must equal the amount due")]
+    PaymentMismatch,
+    #[error("cash tender is less than the allocated payment")]
+    InvalidCashTender,
+    #[error("non-cash payments cannot be over-tendered")]
+    NonCashOverpayment,
+    #[error("payment method not found")]
+    PaymentMethodNotFound,
+    #[error("an open shift is required")]
+    OpenShiftNotFound,
+    #[error("an inventory location is required for stock consumption")]
+    InventoryLocationRequired,
     #[error("username is required")]
     EmptyUsername,
     #[error("display name is required")]

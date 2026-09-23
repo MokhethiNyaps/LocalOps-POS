@@ -94,7 +94,8 @@ fn replace_recipe_rows(
                 "SELECT p.base_unit_id
                  FROM products p
                  JOIN sellable_items s ON s.id = p.sellable_id
-                 WHERE p.sellable_id = ?1 AND s.business_id = ?2 AND s.active = 1",
+                 WHERE p.sellable_id = ?1 AND s.business_id = ?2 AND s.active = 1
+                   AND p.track_stock = 1",
                 (item.ingredient_product_id, business_id),
                 |row| row.get::<_, String>(0),
             )
