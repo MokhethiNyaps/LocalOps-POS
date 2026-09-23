@@ -86,9 +86,9 @@ Success: cashier periods and expenses reconcile without deleting history.
 
 ## Phase 8: Reports and Dashboard
 
-- [ ] Business and department sales totals
-- [ ] Payment, expense, stock, variance, and gross-profit summaries
-- [ ] Dashboard and exports
+- [x] Business and department sales totals
+- [x] Payment, expense, stock, variance, and gross-profit summaries
+- [x] Dashboard and exports
 
 Success: persisted facts produce understandable business-wide and department reporting.
 

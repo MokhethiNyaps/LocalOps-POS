@@ -17,6 +17,7 @@ pub mod product;
 pub mod purchasing;
 pub mod recipe;
 pub mod refund;
+pub mod report;
 pub mod role;
 pub mod sales;
 pub mod sellable;

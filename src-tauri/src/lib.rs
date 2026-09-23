@@ -60,6 +60,8 @@ pub fn run() {
             crate::operations_commands::create_expense_category,
             crate::operations_commands::record_operating_expense,
             crate::operations_commands::void_operating_expense,
+            crate::report_commands::get_dashboard_report,
+            crate::report_commands::export_dashboard_csv,
         ])
         .run(tauri::generate_context!())
         .expect("error while running tauri application");
@@ -77,5 +79,6 @@ mod catalogue_commands;
 mod commands;
 mod inventory_commands;
 mod operations_commands;
+mod report_commands;
 mod sales_commands;
 mod session_guard;

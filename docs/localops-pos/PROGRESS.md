@@ -1,6 +1,6 @@
 # LocalOps POS Progress
 
-## Status: Phase 8 - In Progress
+## Status: Phase 9 - In Progress
 
 ## Quick Reference
 
@@ -27,12 +27,14 @@
 - Ledger-backed inventory workspace for suppliers, receiving, transfers, waste/damage, stock counts, balances, and recent movements
 - Atomic POS workspace with split payments, structured receipts, idempotent completion, recipe/direct stock consumption, partial refunds, and full voids
 - Audited shift opening/closing with preserved cash variance plus idempotent expense recording/voiding and cash-drawer effects
+- Persisted-fact business dashboard with department, payment, expense, shift, stock, low-stock, and gross-profit summaries plus local CSV export
 
 ## Current Phase Tasks
 
-- [ ] Business and department sales totals
-- [ ] Payment, expense, stock, variance, and gross-profit summaries
-- [ ] Dashboard and export workflows
+- [ ] Automatic backup retention and manual backup/restore
+- [ ] Migration verification from every supported version
+- [ ] Audit and database reconciliation coverage
+- [ ] Offline and failure-injection scenarios
 
 ## Decisions
 
@@ -63,7 +65,8 @@
 - Added atomic sale completion with immutable item snapshots, exact tax rounding, split payments, cash change, direct/recipe stock consumption, duplicate-request replay, and rollback failure coverage; verified 126 Rust tests and strict Clippy.
 - Completed Phase 6 with migration 0005 consumption snapshots, append-only split-payment refunds and voids, explicit stock restoration, structured receipts, session-scoped POS commands, and a desktop till; verified 129 Rust tests, 2 frontend tests, production build, and strict Clippy.
 - Completed Phase 7 with migration 0006, one-open-shift enforcement, immutable expected/actual/variance close records, idempotent expenses, auditable expense voids, cash-drawer reconciliation, permissions, and desktop workflows; verified 131 Rust tests, 2 frontend tests, production build, and strict Clippy.
+- Completed Phase 8 with persisted-fact business/department totals, payment and refund summaries, expenses, shift variance, current stock valuation, low-stock indicators, estimated gross profit, dashboard UI, and local CSV export; verified 132 Rust tests, 2 frontend tests, production build, and strict Clippy.
 
 ## Next Step
 
-Implement persisted-fact reports, dashboard summaries, and local export workflows.
+Implement verified backup retention/manual recovery, migration matrix checks, reconciliation, and offline failure scenarios.
