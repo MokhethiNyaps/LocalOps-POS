@@ -94,10 +94,10 @@ Success: persisted facts produce understandable business-wide and department rep
 
 ## Phase 9: Safety
 
-- [ ] Automatic backup retention and manual backup/restore
-- [ ] Migration verification from every supported version
-- [ ] Audit coverage and database reconciliation
-- [ ] Offline and failure-injection scenarios
+- [x] Automatic backup retention and manual backup/restore
+- [x] Migration verification from every supported version
+- [x] Audit coverage and database reconciliation
+- [x] Offline and failure-injection scenarios
 
 Success: customer data survives upgrades and verified recovery works.
 

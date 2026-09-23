@@ -1,5 +1,6 @@
 pub mod audit;
 pub mod availability;
+pub mod backup;
 pub mod bootstrap;
 pub mod business;
 pub mod catalogue;
@@ -19,6 +20,7 @@ pub mod recipe;
 pub mod refund;
 pub mod report;
 pub mod role;
+pub mod safety;
 pub mod sales;
 pub mod sellable;
 pub mod service;
@@ -382,6 +384,46 @@ mod tests {
             (Uuid::now_v7().to_string(), Uuid::now_v7().to_string()),
         );
         assert!(result.is_err());
+    }
+
+    #[test]
+    fn migrates_every_supported_schema_version_to_latest() {
+        let later_migrations = [
+            (2, "identity-alignment", "embedded-v2", MIGRATION_2),
+            (3, "inventory-integrity", "embedded-v3", MIGRATION_3),
+            (4, "stock-count-zero-variance", "embedded-v4", MIGRATION_4),
+            (5, "sale-reversals", "embedded-v5", MIGRATION_5),
+            (6, "shift-expenses", "embedded-v6", MIGRATION_6),
+        ];
+        for starting_version in 1..=6 {
+            let database = Connection::open_in_memory().unwrap();
+            configure(&database).unwrap();
+            database.execute_batch(MIGRATION_1).unwrap();
+            database
+                .execute(
+                    "INSERT INTO schema_migrations(version,name,checksum)
+                     VALUES(1,'foundation','embedded-v1')",
+                    [],
+                )
+                .unwrap();
+            database.pragma_update(None, "user_version", 1).unwrap();
+            for (version, name, checksum, sql) in later_migrations
+                .iter()
+                .copied()
+                .filter(|(version, _, _, _)| *version <= starting_version)
+            {
+                apply_migration(&database, version, name, checksum, sql).unwrap();
+            }
+            migrate(&database).unwrap();
+            let final_version: i64 = database
+                .query_row("PRAGMA user_version", [], |row| row.get(0))
+                .unwrap();
+            let integrity: String = database
+                .query_row("PRAGMA quick_check", [], |row| row.get(0))
+                .unwrap();
+            assert_eq!(final_version, 6, "starting at version {starting_version}");
+            assert_eq!(integrity, "ok");
+        }
     }
 
     #[test]

@@ -1,6 +1,6 @@
 # LocalOps POS Progress
 
-## Status: Phase 9 - In Progress
+## Status: Phase 10 - In Progress
 
 ## Quick Reference
 
@@ -28,13 +28,14 @@
 - Atomic POS workspace with split payments, structured receipts, idempotent completion, recipe/direct stock consumption, partial refunds, and full voids
 - Audited shift opening/closing with preserved cash variance plus idempotent expense recording/voiding and cash-drawer effects
 - Persisted-fact business dashboard with department, payment, expense, shift, stock, low-stock, and gross-profit summaries plus local CSV export
+- Verified SQLite-native backups with 7 daily/4 weekly/12 monthly retention, path-safe restore, migration-matrix tests, and database/audit reconciliation UI
 
 ## Current Phase Tasks
 
-- [ ] Automatic backup retention and manual backup/restore
-- [ ] Migration verification from every supported version
-- [ ] Audit and database reconciliation coverage
-- [ ] Offline and failure-injection scenarios
+- [ ] Windows installer and release configuration
+- [ ] Structured receipt print adapter
+- [ ] Barcode keyboard-input workflow
+- [ ] End-to-end release checklist and packaged validation
 
 ## Decisions
 
@@ -66,7 +67,8 @@
 - Completed Phase 6 with migration 0005 consumption snapshots, append-only split-payment refunds and voids, explicit stock restoration, structured receipts, session-scoped POS commands, and a desktop till; verified 129 Rust tests, 2 frontend tests, production build, and strict Clippy.
 - Completed Phase 7 with migration 0006, one-open-shift enforcement, immutable expected/actual/variance close records, idempotent expenses, auditable expense voids, cash-drawer reconciliation, permissions, and desktop workflows; verified 131 Rust tests, 2 frontend tests, production build, and strict Clippy.
 - Completed Phase 8 with persisted-fact business/department totals, payment and refund summaries, expenses, shift variance, current stock valuation, low-stock indicators, estimated gross profit, dashboard UI, and local CSV export; verified 132 Rust tests, 2 frontend tests, production build, and strict Clippy.
+- Completed Phase 9 with automatic verified backup retention, manual backup/restore plus pre-restore safety copy, strict backup path validation, schema v1-v6 migration-matrix tests, health/reconciliation reporting, and corrupt-restore failure coverage; verified 136 Rust tests, 2 frontend tests, production build, and strict Clippy.
 
 ## Next Step
 
-Implement verified backup retention/manual recovery, migration matrix checks, reconciliation, and offline failure scenarios.
+Finalize Windows installer metadata, OS print-dialog receipts, barcode keyboard input, and the end-to-end release checklist.

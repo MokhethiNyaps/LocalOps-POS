@@ -62,6 +62,9 @@ pub fn run() {
             crate::operations_commands::void_operating_expense,
             crate::report_commands::get_dashboard_report,
             crate::report_commands::export_dashboard_csv,
+            crate::safety_commands::get_safety_status,
+            crate::safety_commands::create_manual_backup,
+            crate::safety_commands::restore_local_backup,
         ])
         .run(tauri::generate_context!())
         .expect("error while running tauri application");
@@ -81,4 +84,5 @@ mod inventory_commands;
 mod operations_commands;
 mod report_commands;
 mod sales_commands;
+mod safety_commands;
 mod session_guard;

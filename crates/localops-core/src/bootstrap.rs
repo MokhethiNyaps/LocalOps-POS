@@ -48,6 +48,7 @@ pub fn bootstrap(paths: &AppPaths) -> Result<(Connection, DatabaseHealth)> {
 
     let backup_created = backup_before_upgrade(paths)?;
     let connection = open_database(&paths.database)?;
+    crate::backup::ensure_automatic_backups(&connection, &paths.backups)?;
     let health = verify(&connection, &paths.database, backup_created)?;
     Ok((connection, health))
 }

@@ -4,7 +4,7 @@ version = "0.1.0"
 edition = "2024"
 
 [dependencies]
-rusqlite = { version = "0.37", features = ["bundled"] }
+rusqlite = { version = "0.37", features = ["bundled", "backup"] }
 thiserror = "2"
 dirs = "6"
 uuid = { version = "1", features = ["v7"] }
@@ -12,6 +12,7 @@ serde = { version = "1.0", features = ["derive"] }
 sha2 = "0.10"
 argon2 = "0.5"
 rand_core = { version = "0.6", features = ["getrandom"] }
+chrono = "0.4"
 
 [dev-dependencies]
 tempfile = "3"
