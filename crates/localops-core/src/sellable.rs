@@ -139,6 +139,38 @@ pub fn get_sellable_items_by_business(
     Ok(items)
 }
 
+/// Assigns the local lookup identifiers used by keyboards and USB barcode scanners.
+/// Empty values are stored as NULL so the partial unique indexes remain useful.
+pub fn set_sellable_identifiers(
+    conn: &Connection,
+    id: &str,
+    barcode: Option<&str>,
+    sku: Option<&str>,
+    product_code: Option<&str>,
+) -> Result<()> {
+    let normalize = |value: Option<&str>| {
+        value
+            .map(str::trim)
+            .filter(|value| !value.is_empty())
+            .map(str::to_string)
+    };
+    let rows = conn.execute(
+        "UPDATE sellable_items
+         SET barcode = ?2, sku = ?3, product_code = ?4
+         WHERE id = ?1",
+        (
+            id,
+            normalize(barcode),
+            normalize(sku),
+            normalize(product_code),
+        ),
+    )?;
+    if rows == 0 {
+        return Err(CoreError::SellableNotFound);
+    }
+    Ok(())
+}
+
 pub fn update_sellable_item(
     conn: &Connection,
     id: &str,
@@ -243,6 +275,28 @@ mod tests {
         assert_eq!(item.price_minor, 2500);
         assert!(item.taxable);
         assert!(item.active);
+    }
+
+    #[test]
+    fn assigns_and_normalizes_local_lookup_identifiers() {
+        let db = crate::open_memory_database().unwrap();
+        let business_id = business::create_business(&db, "Test Business").unwrap();
+        let id =
+            create_sellable_item(&db, &business_id, "Coffee", "PRODUCT", 2500, None, true).unwrap();
+
+        set_sellable_identifiers(
+            &db,
+            &id,
+            Some(" 6001000000012 "),
+            Some(" SKU-001 "),
+            Some("   "),
+        )
+        .unwrap();
+
+        let item = get_sellable_item(&db, &id).unwrap().unwrap();
+        assert_eq!(item.barcode.as_deref(), Some("6001000000012"));
+        assert_eq!(item.sku.as_deref(), Some("SKU-001"));
+        assert_eq!(item.product_code, None);
     }
 
     #[test]

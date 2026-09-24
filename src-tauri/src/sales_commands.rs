@@ -4,6 +4,15 @@ use tauri::State;
 
 use crate::{session_guard::require_active_context, DbState};
 
+const POS_ITEM_QUERY: &str = "SELECT s.id, d.id, d.name, s.name, s.kind,
+            COALESCE(ds.price_override_minor, s.price_minor), s.taxable,
+            s.sku, s.product_code, s.barcode
+     FROM department_sellables ds
+     JOIN departments d ON d.id = ds.department_id
+     JOIN sellable_items s ON s.id = ds.sellable_id
+     WHERE d.business_id = ?1 AND d.active = 1 AND s.active = 1 AND ds.active = 1
+     ORDER BY d.name, s.name";
+
 #[derive(Debug, Serialize)]
 #[serde(rename_all = "camelCase")]
 pub struct PosItemDto {
@@ -14,6 +23,8 @@ pub struct PosItemDto {
     kind: String,
     price_minor: i64,
     taxable: bool,
+    sku: Option<String>,
+    product_code: Option<String>,
     barcode: Option<String>,
 }
 
@@ -263,16 +274,7 @@ pub fn get_pos_snapshot(state: State<'_, DbState>) -> Result<PosSnapshot, String
     })
     .collect();
     let mut item_statement = connection
-        .prepare(
-            "SELECT s.id, d.id, d.name, s.name, s.kind,
-                    COALESCE(ds.price_override_minor, s.price_minor), s.taxable, p.barcode
-             FROM department_sellables ds
-             JOIN departments d ON d.id = ds.department_id
-             JOIN sellable_items s ON s.id = ds.sellable_id
-             LEFT JOIN products p ON p.sellable_id = s.id
-             WHERE d.business_id = ?1 AND d.active = 1 AND s.active = 1 AND ds.active = 1
-             ORDER BY d.name, s.name",
-        )
+        .prepare(POS_ITEM_QUERY)
         .map_err(|error| error.to_string())?;
     let items = item_statement
         .query_map([&context.business_id], |row| {
@@ -284,7 +286,9 @@ pub fn get_pos_snapshot(state: State<'_, DbState>) -> Result<PosSnapshot, String
                 kind: row.get(4)?,
                 price_minor: row.get(5)?,
                 taxable: row.get(6)?,
-                barcode: row.get(7)?,
+                sku: row.get(7)?,
+                product_code: row.get(8)?,
+                barcode: row.get(9)?,
             })
         })
         .map_err(|error| error.to_string())?
@@ -445,6 +449,17 @@ pub fn complete_pos_sale(
     )
     .map(Into::into)
     .map_err(|error| error.to_string())
+}
+
+#[cfg(test)]
+mod tests {
+    use super::POS_ITEM_QUERY;
+
+    #[test]
+    fn pos_item_query_matches_the_migrated_schema() {
+        let database = localops_core::open_memory_database().unwrap();
+        database.prepare(POS_ITEM_QUERY).unwrap();
+    }
 }
 
 #[tauri::command]

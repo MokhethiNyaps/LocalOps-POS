@@ -6,7 +6,9 @@
   "scripts": {
     "dev": "vite --host 0.0.0.0",
     "build": "tsc && vite build",
-    "test": "vitest run"
+    "test": "vitest run",
+    "tauri": "tauri",
+    "release:windows": "tauri build --bundles nsis"
   },
   "dependencies": {
     "@tauri-apps/api": "^2.8.0",

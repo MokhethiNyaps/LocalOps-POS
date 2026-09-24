@@ -74,6 +74,9 @@ pub struct CatalogueItemDto {
     category_id: Option<String>,
     price_minor: i64,
     taxable: bool,
+    barcode: Option<String>,
+    sku: Option<String>,
+    product_code: Option<String>,
     base_unit_id: Option<String>,
     cost_minor: Option<i64>,
     track_stock: Option<bool>,
@@ -175,6 +178,9 @@ pub fn get_catalogue_snapshot(state: State<'_, DbState>) -> Result<CatalogueSnap
             category_id: sellable.category_id,
             price_minor: sellable.price_minor,
             taxable: sellable.taxable,
+            barcode: sellable.barcode,
+            sku: sellable.sku,
+            product_code: sellable.product_code,
             base_unit_id: product.as_ref().map(|value| value.base_unit_id.clone()),
             cost_minor: product.as_ref().map(|value| value.cost_minor),
             track_stock: product.as_ref().map(|value| value.track_stock),
@@ -288,6 +294,9 @@ pub struct ProductInput {
     cost_minor: i64,
     track_stock: bool,
     minimum_quantity_micros: i64,
+    barcode: Option<String>,
+    sku: Option<String>,
+    product_code: Option<String>,
 }
 
 #[tauri::command]
@@ -315,11 +324,22 @@ pub fn create_catalogue_product(
         },
     )
     .map_err(|error| error.to_string())?;
+    localops_core::sellable::set_sellable_identifiers(
+        &transaction,
+        &id,
+        input.barcode.as_deref(),
+        input.sku.as_deref(),
+        input.product_code.as_deref(),
+    )
+    .map_err(|error| error.to_string())?;
     let payload = serde_json::json!({
         "name": input.name,
         "priceMinor": input.price_minor,
         "baseUnitId": input.base_unit_id,
-        "trackStock": input.track_stock
+        "trackStock": input.track_stock,
+        "barcode": input.barcode,
+        "sku": input.sku,
+        "productCode": input.product_code
     })
     .to_string();
     record_catalogue_audit(

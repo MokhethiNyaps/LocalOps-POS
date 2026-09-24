@@ -83,6 +83,6 @@ mod commands;
 mod inventory_commands;
 mod operations_commands;
 mod report_commands;
-mod sales_commands;
 mod safety_commands;
+mod sales_commands;
 mod session_guard;

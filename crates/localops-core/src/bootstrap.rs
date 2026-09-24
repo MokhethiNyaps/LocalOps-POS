@@ -1,8 +1,9 @@
 use crate::{CoreError, Result, open_database};
-use rusqlite::{Connection, OpenFlags};
+use rusqlite::{Connection, OpenFlags, backup::Backup};
 use std::{
     fs,
     path::{Path, PathBuf},
+    time::Duration,
     time::{SystemTime, UNIX_EPOCH},
 };
 
@@ -18,9 +19,9 @@ pub struct AppPaths {
 
 impl AppPaths {
     pub fn windows_default() -> Result<Self> {
-        let root = dirs::data_local_dir()
-            .ok_or(CoreError::AppDataDirectoryUnavailable)?
-            .join("LocalOps POS");
+        let local_data = dirs::data_local_dir().ok_or(CoreError::AppDataDirectoryUnavailable)?;
+        let root = local_data.join("LocalOps").join("POS");
+        migrate_legacy_data(&local_data.join("LocalOps POS"), &root)?;
         Ok(Self::from_data_dir(root))
     }
 
@@ -32,6 +33,44 @@ impl AppPaths {
             data_dir,
         }
     }
+}
+
+/// Moves customer state away from the historical NSIS install directory without
+/// deleting the source. SQLite's online backup API includes committed WAL pages.
+fn migrate_legacy_data(legacy_dir: &Path, destination_dir: &Path) -> Result<()> {
+    let legacy_database = legacy_dir.join(DATABASE_FILENAME);
+    let destination_database = destination_dir.join(DATABASE_FILENAME);
+    if destination_database.exists() || !legacy_database.exists() {
+        return Ok(());
+    }
+
+    fs::create_dir_all(destination_dir)?;
+    let temporary_database = destination_dir.join("business.db.migrating");
+    let source = Connection::open_with_flags(&legacy_database, OpenFlags::SQLITE_OPEN_READ_ONLY)?;
+    let mut destination = Connection::open(&temporary_database)?;
+    let backup = Backup::new(&source, &mut destination)?;
+    backup.run_to_completion(32, Duration::from_millis(10), None)?;
+    drop(backup);
+    drop(destination);
+    verify_backup(&temporary_database)?;
+    fs::rename(&temporary_database, &destination_database)?;
+
+    let legacy_backups = legacy_dir.join("Backups");
+    let destination_backups = destination_dir.join("Backups");
+    if legacy_backups.is_dir() {
+        fs::create_dir_all(&destination_backups)?;
+        for entry in fs::read_dir(legacy_backups)? {
+            let entry = entry?;
+            let source_path = entry.path();
+            if source_path.is_file() && source_path.extension().is_some_and(|value| value == "db") {
+                let destination_path = destination_backups.join(entry.file_name());
+                if !destination_path.exists() && verify_backup(&source_path).is_ok() {
+                    fs::copy(source_path, destination_path)?;
+                }
+            }
+        }
+    }
+    Ok(())
 }
 
 #[derive(Debug, Clone, PartialEq, Eq)]
@@ -119,6 +158,44 @@ mod tests {
         assert_eq!(health.schema_version, LATEST_SCHEMA_VERSION);
         assert_eq!(health.integrity, "ok");
         assert_eq!(health.backup_created, None);
+    }
+
+    #[test]
+    fn migrates_legacy_database_and_backups_to_separate_data_directory() {
+        let temp = tempfile::tempdir().unwrap();
+        let legacy = temp.path().join("LocalOps POS");
+        let destination = temp.path().join("LocalOps").join("POS");
+        let legacy_paths = AppPaths::from_data_dir(&legacy);
+        let (database, _) = bootstrap(&legacy_paths).unwrap();
+        database
+            .execute(
+                "INSERT INTO businesses(id, name) VALUES('legacy-business', 'Legacy')",
+                [],
+            )
+            .unwrap();
+        crate::backup::create_backup(&database, &legacy_paths.backups, "manual").unwrap();
+        drop(database);
+
+        migrate_legacy_data(&legacy, &destination).unwrap();
+
+        let migrated = Connection::open(destination.join(DATABASE_FILENAME)).unwrap();
+        let name: String = migrated
+            .query_row(
+                "SELECT name FROM businesses WHERE id = 'legacy-business'",
+                [],
+                |row| row.get(0),
+            )
+            .unwrap();
+        assert_eq!(name, "Legacy");
+        assert!(
+            destination
+                .join("Backups")
+                .read_dir()
+                .unwrap()
+                .next()
+                .is_some()
+        );
+        assert!(legacy.join(DATABASE_FILENAME).exists());
     }
 
     #[test]

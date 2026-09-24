@@ -103,9 +103,9 @@ Success: customer data survives upgrades and verified recovery works.
 
 ## Phase 10: Packaging
 
-- [ ] Windows installer and release configuration
-- [ ] Structured receipt data and OS print adapter
-- [ ] Barcode input workflow
-- [ ] End-to-end release checklist
+- [x] Windows installer and release configuration
+- [x] Structured receipt data and OS print adapter
+- [x] Barcode input workflow
+- [x] End-to-end release checklist
 
 Success: a Windows customer can install, configure, operate, print, back up, restore, and uninstall without an internet dependency.

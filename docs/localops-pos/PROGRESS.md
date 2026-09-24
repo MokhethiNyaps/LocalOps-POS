@@ -1,6 +1,6 @@
 # LocalOps POS Progress
 
-## Status: Phase 10 - In Progress
+## Status: V1 Implementation Complete
 
 ## Quick Reference
 
@@ -29,13 +29,15 @@
 - Audited shift opening/closing with preserved cash variance plus idempotent expense recording/voiding and cash-drawer effects
 - Persisted-fact business dashboard with department, payment, expense, shift, stock, low-stock, and gross-profit summaries plus local CSV export
 - Verified SQLite-native backups with 7 daily/4 weekly/12 monthly retention, path-safe restore, migration-matrix tests, and database/audit reconciliation UI
+- Signed-ready NSIS packaging, OS print-dialog receipts, locally configured barcode/SKU/product-code scanner input, and verified install/launch/uninstall behavior
+- Customer data isolated in `%LOCALAPPDATA%\LocalOps\POS` with WAL-aware migration from the legacy install-directory location
 
-## Current Phase Tasks
+## Phase 10 Tasks
 
-- [ ] Windows installer and release configuration
-- [ ] Structured receipt print adapter
-- [ ] Barcode keyboard-input workflow
-- [ ] End-to-end release checklist and packaged validation
+- [x] Windows installer and release configuration
+- [x] Structured receipt print adapter
+- [x] Barcode keyboard-input workflow
+- [x] End-to-end release checklist and packaged validation
 
 ## Decisions
 
@@ -68,7 +70,10 @@
 - Completed Phase 7 with migration 0006, one-open-shift enforcement, immutable expected/actual/variance close records, idempotent expenses, auditable expense voids, cash-drawer reconciliation, permissions, and desktop workflows; verified 131 Rust tests, 2 frontend tests, production build, and strict Clippy.
 - Completed Phase 8 with persisted-fact business/department totals, payment and refund summaries, expenses, shift variance, current stock valuation, low-stock indicators, estimated gross profit, dashboard UI, and local CSV export; verified 132 Rust tests, 2 frontend tests, production build, and strict Clippy.
 - Completed Phase 9 with automatic verified backup retention, manual backup/restore plus pre-restore safety copy, strict backup path validation, schema v1-v6 migration-matrix tests, health/reconciliation reporting, and corrupt-restore failure coverage; verified 136 Rust tests, 2 frontend tests, production build, and strict Clippy.
+- Completed Phase 10 with a signed-ready NSIS installer, Windows print-dialog receipt adapter, local barcode/SKU/product-code scanner workflow, and a real current-user install/launch/uninstall smoke test.
+- Corrected installer/data-directory overlap discovered during packaged validation. Customer state now lives in `%LOCALAPPDATA%\LocalOps\POS`; the first launch performs a verified SQLite/WAL-aware copy from the legacy location and retains the source as a safety copy.
+- Final gates: 138 core tests, 3 desktop-command tests, 3 frontend tests, production build, formatting, strict Clippy, NSIS build, packaged launch, and byte-for-byte customer-data retention after uninstall.
 
 ## Next Step
 
-Finalize Windows installer metadata, OS print-dialog receipts, barcode keyboard input, and the end-to-end release checklist.
+The V1 implementation is complete. Before distributing a customer release, complete the environment-specific operator and code-signing items in `docs/RELEASE-CHECKLIST.md`.

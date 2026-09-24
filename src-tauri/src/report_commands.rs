@@ -2,7 +2,7 @@ use localops_core::report;
 use serde::{Deserialize, Serialize};
 use tauri::State;
 
-use crate::{DbState, session_guard::require_active_context};
+use crate::{session_guard::require_active_context, DbState};
 
 #[derive(Debug, Deserialize)]
 #[serde(rename_all = "camelCase")]
