@@ -16,6 +16,8 @@ All ten V1 architecture phases are implemented. The source-of-truth specificatio
 
 See [`docs/BUILD-PLAN.md`](docs/BUILD-PLAN.md) for the incremental plan.
 
+The client and employee operating instructions are in [`docs/USER-MANUAL.md`](docs/USER-MANUAL.md).
+
 ## Development
 
 Prerequisites: Node.js, Rust, and the Windows WebView2 runtime.
