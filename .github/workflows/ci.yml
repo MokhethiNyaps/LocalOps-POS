@@ -1,5 +1,8 @@
 name: CI
 
+permissions:
+  contents: write
+
 on:
   push:
     branches: ['**']
@@ -9,12 +12,18 @@ on:
 jobs:
   frontend:
     name: Frontend (vitest + build)
-    runs-on: ubuntu-latest
+    runs-permissions:
+  contents: write
+
+on: ubuntu-latest
     steps:
       - uses: actions/checkout@v4
       - uses: actions/setup-node@v4
         with:
-          node-version: '20'
+          node-versipermissions:
+  contents: write
+
+on: '20'
           cache: npm
       - run: npm ci
       - run: npm test -- --run
@@ -22,7 +31,10 @@ jobs:
 
   rust:
     name: Rust (tests + clippy)
-    runs-on: ubuntu-latest
+    runs-permissions:
+  contents: write
+
+on: ubuntu-latest
     steps:
       - uses: actions/checkout@v4
       - uses: dtolnay/rust-toolchain@stable
@@ -49,6 +61,10 @@ jobs:
         env:
           GH_TOKEN: ${{ github.token }}
         run: |
-          grep -E "^(error|warning|thread|failures:|test .* FAILED)" -A 6 /tmp/rust.log | tail -c 60000 > /tmp/report.txt || tail -c 60000 /tmp/rust.log > /tmp/report.txt
-          jq -Rs '{body: ("```\n" + . + "\n```")}' /tmp/report.txt > /tmp/body.json
+          set +e
+          grep -E "^(error|warning|thread|failures:)" -A 8 /tmp/rust.log > /tmp/report.txt
+          if [ ! -s /tmp/report.txt ]; then tail -n 400 /tmp/rust.log > /tmp/report.txt; fi
+          tail -c 55000 /tmp/report.txt > /tmp/report.trim
+          jq -Rs '{body: .}' /tmp/report.trim > /tmp/body.json
           gh api repos/${{ github.repository }}/commits/${{ github.sha }}/comments --input /tmp/body.json
+          exit 0
