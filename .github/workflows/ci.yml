@@ -38,5 +38,17 @@ jobs:
         run: |
           npm ci
           npm run build
-      - run: cargo test --workspace
-      - run: cargo clippy --workspace --all-targets -- -D warnings
+      - name: cargo test
+        id: test
+        run: cargo test --workspace 2>&1 | tee -a /tmp/rust.log; exit ${PIPESTATUS[0]}
+      - name: cargo clippy
+        if: always()
+        run: cargo clippy --workspace --all-targets -- -D warnings 2>&1 | tee -a /tmp/rust.log; exit ${PIPESTATUS[0]}
+      - name: Report compiler output
+        if: failure()
+        env:
+          GH_TOKEN: ${{ github.token }}
+        run: |
+          grep -E "^(error|warning|thread|failures:|test .* FAILED)" -A 6 /tmp/rust.log | tail -c 60000 > /tmp/report.txt || tail -c 60000 /tmp/rust.log > /tmp/report.txt
+          jq -Rs '{body: ("```\n" + . + "\n```")}' /tmp/report.txt > /tmp/body.json
+          gh api repos/${{ github.repository }}/commits/${{ github.sha }}/comments --input /tmp/body.json
