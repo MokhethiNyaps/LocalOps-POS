@@ -268,29 +268,27 @@ pub fn update_employee(
         user::update_user(&transaction, employee_id, name)?;
     }
     let mut invalidate = false;
-    if let Some(next_active) = active {
-        if next_active != existing.active {
-            transaction.execute(
-                "UPDATE users
-                 SET active = ?2, failed_attempts = 0, locked_until = NULL,
-                     updated_at = strftime('%Y-%m-%dT%H:%M:%fZ','now')
-                 WHERE id = ?1",
-                (employee_id, next_active),
-            )?;
-            invalidate = true;
-            require_remaining_owner(&transaction, &context.business_id)?;
-            audit_employee(
-                &transaction,
-                context,
-                if next_active {
-                    "USER_ACTIVATED"
-                } else {
-                    "USER_DEACTIVATED"
-                },
-                employee_id,
-                None,
-            )?;
-        }
+    if let Some(next_active) = active.filter(|value| *value != existing.active) {
+        transaction.execute(
+            "UPDATE users
+             SET active = ?2, failed_attempts = 0, locked_until = NULL,
+                 updated_at = strftime('%Y-%m-%dT%H:%M:%fZ','now')
+             WHERE id = ?1",
+            (employee_id, next_active),
+        )?;
+        invalidate = true;
+        require_remaining_owner(&transaction, &context.business_id)?;
+        audit_employee(
+            &transaction,
+            context,
+            if next_active {
+                "USER_ACTIVATED"
+            } else {
+                "USER_DEACTIVATED"
+            },
+            employee_id,
+            None,
+        )?;
     }
     if invalidate {
         session::end_sessions_for_user(&transaction, employee_id, "AUTHORITY_CHANGED")?;
