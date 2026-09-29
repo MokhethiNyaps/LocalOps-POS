@@ -661,7 +661,7 @@ mod tests {
                 |row| row.get(0),
             )
             .unwrap();
-        assert_eq!(version, 6);
+        assert_eq!(version, 7);
         assert_eq!(device_key, "TILL-1");
         assert_eq!(assignments, 1);
     }
