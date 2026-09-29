@@ -16,7 +16,26 @@ pub struct Shift {
     pub status: String,
     pub opened_at: String,
     pub closed_at: Option<String>,
+    pub closed_by: Option<String>,
     pub notes: Option<String>,
+}
+
+fn map_shift(row: &rusqlite::Row<'_>) -> rusqlite::Result<Shift> {
+    Ok(Shift {
+        id: row.get(0)?,
+        business_id: row.get(1)?,
+        terminal_id: row.get(2)?,
+        user_id: row.get(3)?,
+        opening_balance_minor: row.get(4)?,
+        expected_balance_minor: row.get(5)?,
+        actual_balance_minor: row.get(6)?,
+        variance_minor: row.get(7)?,
+        status: row.get(8)?,
+        opened_at: row.get(9)?,
+        closed_at: row.get(10)?,
+        closed_by: row.get(11)?,
+        notes: row.get(12)?,
+    })
 }
 
 pub fn get_open_shift(
@@ -28,26 +47,11 @@ pub fn get_open_shift(
         .query_row(
             "SELECT id, business_id, terminal_id, user_id, opening_balance_minor,
                     expected_balance_minor, actual_balance_minor, variance_minor,
-                    status, opened_at, closed_at, notes
+                    status, opened_at, closed_at, closed_by, notes
              FROM shifts WHERE business_id = ?1 AND terminal_id = ?2 AND status = 'OPEN'
              ORDER BY opened_at DESC LIMIT 1",
             (business_id, terminal_id),
-            |row| {
-                Ok(Shift {
-                    id: row.get(0)?,
-                    business_id: row.get(1)?,
-                    terminal_id: row.get(2)?,
-                    user_id: row.get(3)?,
-                    opening_balance_minor: row.get(4)?,
-                    expected_balance_minor: row.get(5)?,
-                    actual_balance_minor: row.get(6)?,
-                    variance_minor: row.get(7)?,
-                    status: row.get(8)?,
-                    opened_at: row.get(9)?,
-                    closed_at: row.get(10)?,
-                    notes: row.get(11)?,
-                })
-            },
+            map_shift,
         )
         .optional()
         .map_err(Into::into)
@@ -124,8 +128,68 @@ pub fn open_shift(
         status: "OPEN".to_owned(),
         opened_at: opened_at.to_owned(),
         closed_at: None,
+        closed_by: None,
         notes: None,
     })
+}
+
+/// Open a shift for the authenticated user only.
+///
+/// The one-open-shift-per-terminal invariant is preserved. When the terminal
+/// already has an open shift owned by another employee the caller receives
+/// [`CoreError::ShiftOwnedByAnotherUser`] instead of somebody else's shift.
+pub fn open_own_shift(
+    connection: &Connection,
+    business_id: &str,
+    terminal_id: &str,
+    user_id: &str,
+    opening_balance_minor: i64,
+    opened_at: &str,
+) -> Result<Shift> {
+    if let Some(existing) = get_open_shift(connection, business_id, terminal_id)? {
+        if existing.user_id != user_id {
+            return Err(CoreError::ShiftOwnedByAnotherUser);
+        }
+        return Ok(existing);
+    }
+    open_shift(
+        connection,
+        business_id,
+        terminal_id,
+        user_id,
+        opening_balance_minor,
+        opened_at,
+    )
+}
+
+/// A single shift inside the authenticated business.
+pub fn get_shift(connection: &Connection, business_id: &str, shift_id: &str) -> Result<Option<Shift>> {
+    connection
+        .query_row(
+            "SELECT id, business_id, terminal_id, user_id, opening_balance_minor,
+                    expected_balance_minor, actual_balance_minor, variance_minor,
+                    status, opened_at, closed_at, closed_by, notes
+             FROM shifts WHERE id = ?1 AND business_id = ?2",
+            (shift_id, business_id),
+            map_shift,
+        )
+        .optional()
+        .map_err(Into::into)
+}
+
+/// Every open shift in the business, used by supervisory shift management.
+pub fn list_open_shifts(connection: &Connection, business_id: &str) -> Result<Vec<Shift>> {
+    let mut statement = connection.prepare(
+        "SELECT id, business_id, terminal_id, user_id, opening_balance_minor,
+                expected_balance_minor, actual_balance_minor, variance_minor,
+                status, opened_at, closed_at, closed_by, notes
+         FROM shifts WHERE business_id = ?1 AND status = 'OPEN'
+         ORDER BY opened_at DESC",
+    )?;
+    statement
+        .query_map([business_id], map_shift)?
+        .collect::<std::result::Result<Vec<_>, _>>()
+        .map_err(Into::into)
 }
 
 pub fn close_shift(
@@ -146,27 +210,12 @@ pub fn close_shift(
             "SELECT sh.id, sh.business_id, sh.terminal_id, sh.user_id,
                     sh.opening_balance_minor, sh.expected_balance_minor,
                     sh.actual_balance_minor, sh.variance_minor, sh.status,
-                    sh.opened_at, sh.closed_at, sh.notes
+                    sh.opened_at, sh.closed_at, sh.closed_by, sh.notes
              FROM shifts sh
              JOIN users u ON u.id = ?3 AND u.business_id = sh.business_id AND u.active = 1
              WHERE sh.id = ?2 AND sh.business_id = ?1",
             (business_id, shift_id, closed_by),
-            |row| {
-                Ok(Shift {
-                    id: row.get(0)?,
-                    business_id: row.get(1)?,
-                    terminal_id: row.get(2)?,
-                    user_id: row.get(3)?,
-                    opening_balance_minor: row.get(4)?,
-                    expected_balance_minor: row.get(5)?,
-                    actual_balance_minor: row.get(6)?,
-                    variance_minor: row.get(7)?,
-                    status: row.get(8)?,
-                    opened_at: row.get(9)?,
-                    closed_at: row.get(10)?,
-                    notes: row.get(11)?,
-                })
-            },
+            map_shift,
         )
         .optional()?
         .ok_or(CoreError::ShiftNotOpen)?;
@@ -211,6 +260,7 @@ pub fn close_shift(
     current.variance_minor = Some(variance_minor);
     current.status = "CLOSED".to_owned();
     current.closed_at = Some(closed_at.to_owned());
+    current.closed_by = Some(closed_by.to_owned());
     current.notes = notes.map(str::to_owned);
     Ok(current)
 }
@@ -219,27 +269,12 @@ pub fn list_shifts(connection: &Connection, business_id: &str, limit: i64) -> Re
     let mut statement = connection.prepare(
         "SELECT id, business_id, terminal_id, user_id, opening_balance_minor,
                 expected_balance_minor, actual_balance_minor, variance_minor,
-                status, opened_at, closed_at, notes
+                status, opened_at, closed_at, closed_by, notes
          FROM shifts WHERE business_id = ?1
          ORDER BY opened_at DESC, created_at DESC LIMIT ?2",
     )?;
     statement
-        .query_map((business_id, limit), |row| {
-            Ok(Shift {
-                id: row.get(0)?,
-                business_id: row.get(1)?,
-                terminal_id: row.get(2)?,
-                user_id: row.get(3)?,
-                opening_balance_minor: row.get(4)?,
-                expected_balance_minor: row.get(5)?,
-                actual_balance_minor: row.get(6)?,
-                variance_minor: row.get(7)?,
-                status: row.get(8)?,
-                opened_at: row.get(9)?,
-                closed_at: row.get(10)?,
-                notes: row.get(11)?,
-            })
-        })?
+        .query_map((business_id, limit), map_shift)?
         .collect::<std::result::Result<Vec<_>, _>>()
         .map_err(Into::into)
 }
@@ -247,7 +282,67 @@ pub fn list_shifts(connection: &Connection, business_id: &str, limit: i64) -> Re
 #[cfg(test)]
 mod tests {
     use super::*;
-    use crate::setup;
+    use crate::{access::fixtures, setup};
+
+    #[test]
+    fn refuses_to_hand_another_employees_open_shift_to_a_cashier() {
+        let database = crate::open_memory_database().unwrap();
+        let fixture = fixtures::business(&database);
+        let (cashier_id, _) =
+            fixtures::cashier(&database, &fixture.business_id, &fixture.terminal_id, "thabo")
+                .unwrap();
+        open_shift(
+            &database,
+            &fixture.business_id,
+            &fixture.terminal_id,
+            &fixture.owner_id,
+            1_000,
+            "2026-09-23T08:00:00.000Z",
+        )
+        .unwrap();
+        assert!(matches!(
+            open_own_shift(
+                &database,
+                &fixture.business_id,
+                &fixture.terminal_id,
+                &cashier_id,
+                0,
+                "2026-09-23T09:00:00.000Z",
+            ),
+            Err(CoreError::ShiftOwnedByAnotherUser)
+        ));
+    }
+
+    #[test]
+    fn owner_close_records_the_closer_without_taking_shift_ownership() {
+        let database = crate::open_memory_database().unwrap();
+        let fixture = fixtures::business(&database);
+        let (cashier_id, _) =
+            fixtures::cashier(&database, &fixture.business_id, &fixture.terminal_id, "thabo")
+                .unwrap();
+        let opened = open_own_shift(
+            &database,
+            &fixture.business_id,
+            &fixture.terminal_id,
+            &cashier_id,
+            5_030,
+            "2026-09-23T08:00:00.000Z",
+        )
+        .unwrap();
+        let closed = close_shift(
+            &database,
+            &fixture.business_id,
+            &opened.id,
+            &fixture.owner_id,
+            4_820,
+            "2026-09-23T18:00:00.000Z",
+            None,
+        )
+        .unwrap();
+        assert_eq!(closed.user_id, cashier_id);
+        assert_eq!(closed.closed_by.as_deref(), Some(fixture.owner_id.as_str()));
+        assert_eq!(closed.variance_minor, Some(-210));
+    }
 
     #[test]
     fn closes_shift_with_immutable_expected_actual_and_variance() {

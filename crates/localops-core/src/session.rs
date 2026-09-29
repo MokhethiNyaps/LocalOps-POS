@@ -105,6 +105,19 @@ pub fn end_session(connection: &Connection, id: &str, reason: &str) -> Result<()
     Ok(())
 }
 
+/// End every active session belonging to a user. Used whenever an Owner changes
+/// that user's authority (deactivation, role assignment change, PIN reset) so a
+/// stale session can never keep its previous permissions.
+pub fn end_sessions_for_user(connection: &Connection, user_id: &str, reason: &str) -> Result<usize> {
+    let changed = connection.execute(
+        "UPDATE sessions
+         SET ended_at = strftime('%Y-%m-%dT%H:%M:%fZ','now'), end_reason = ?2
+         WHERE user_id = ?1 AND ended_at IS NULL",
+        (user_id, reason),
+    )?;
+    Ok(changed)
+}
+
 fn map_session(row: &rusqlite::Row<'_>) -> rusqlite::Result<Session> {
     Ok(Session {
         id: row.get(0)?,

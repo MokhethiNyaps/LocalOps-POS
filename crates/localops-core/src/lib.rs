@@ -1,12 +1,15 @@
+pub mod access;
 pub mod audit;
 pub mod availability;
 pub mod backup;
 pub mod bootstrap;
 pub mod business;
+pub mod cashier;
 pub mod catalogue;
 pub mod category;
 pub mod conversion;
 pub mod department;
+pub mod employee;
 pub mod expense;
 pub mod inventory;
 pub mod inventory_operations;
@@ -44,6 +47,8 @@ const MIGRATION_3: &str = include_str!("../migrations/0003_inventory_integrity.s
 const MIGRATION_4: &str = include_str!("../migrations/0004_stock_count_zero_variance.sql");
 const MIGRATION_5: &str = include_str!("../migrations/0005_sale_reversals.sql");
 const MIGRATION_6: &str = include_str!("../migrations/0006_shift_expenses.sql");
+const MIGRATION_7: &str =
+    include_str!("../migrations/0007_owner_cashier_access_control.sql");
 
 #[derive(Debug, Error)]
 pub enum CoreError {
@@ -213,6 +218,20 @@ pub enum CoreError {
     IntegrityCheckFailed(String),
     #[error("backup verification failed: {0}")]
     BackupVerificationFailed(String),
+    #[error("Permission denied: {0}")]
+    PermissionDenied(String),
+    #[error("the requested record is not available for this session")]
+    ScopeDenied,
+    #[error("this terminal already has an open shift owned by another employee")]
+    ShiftOwnedByAnotherUser,
+    #[error("a terminal department is required for this operation")]
+    TerminalDepartmentRequired,
+    #[error("the business must keep at least one active Owner")]
+    LastActiveOwnerRequired,
+    #[error("initial setup has already been completed")]
+    SetupAlreadyCompleted,
+    #[error("username is already in use")]
+    DuplicateUsername,
 }
 
 pub type Result<T> = std::result::Result<T, CoreError>;
@@ -285,6 +304,16 @@ fn migrate(connection: &Connection) -> Result<()> {
     }
     if version < 6 {
         apply_migration(connection, 6, "shift-expenses", "embedded-v6", MIGRATION_6)?;
+        version = 6;
+    }
+    if version < 7 {
+        apply_migration(
+            connection,
+            7,
+            "owner-cashier-access-control",
+            "embedded-v7",
+            MIGRATION_7,
+        )?;
     }
     Ok(())
 }
@@ -334,7 +363,7 @@ mod tests {
             })
             .unwrap();
         assert_eq!(enabled, 1);
-        assert_eq!(version, 6);
+        assert_eq!(version, 7);
     }
 
     #[test]
@@ -394,8 +423,14 @@ mod tests {
             (4, "stock-count-zero-variance", "embedded-v4", MIGRATION_4),
             (5, "sale-reversals", "embedded-v5", MIGRATION_5),
             (6, "shift-expenses", "embedded-v6", MIGRATION_6),
+            (
+                7,
+                "owner-cashier-access-control",
+                "embedded-v7",
+                MIGRATION_7,
+            ),
         ];
-        for starting_version in 1..=6 {
+        for starting_version in 1..=7 {
             let database = Connection::open_in_memory().unwrap();
             configure(&database).unwrap();
             database.execute_batch(MIGRATION_1).unwrap();
@@ -421,9 +456,150 @@ mod tests {
             let integrity: String = database
                 .query_row("PRAGMA quick_check", [], |row| row.get(0))
                 .unwrap();
-            assert_eq!(final_version, 6, "starting at version {starting_version}");
+            assert_eq!(final_version, 7, "starting at version {starting_version}");
             assert_eq!(integrity, "ok");
         }
+    }
+
+    /// Section 5.3 legacy permission compatibility: explicitly granted
+    /// management authority survives the split into narrow permissions, while
+    /// accidental session-only reads are not converted into new entitlements.
+    #[test]
+    fn migrates_legacy_roles_into_the_narrow_permission_model() {
+        let database = Connection::open_in_memory().unwrap();
+        configure(&database).unwrap();
+        database.execute_batch(MIGRATION_1).unwrap();
+        database
+            .execute(
+                "INSERT INTO schema_migrations(version,name,checksum)
+                 VALUES(1,'foundation','embedded-v1')",
+                [],
+            )
+            .unwrap();
+        database.pragma_update(None, "user_version", 1).unwrap();
+        let business_id = Uuid::now_v7().to_string();
+        database
+            .execute(
+                "INSERT INTO businesses(id,name) VALUES(?1,'Legacy Business')",
+                [&business_id],
+            )
+            .unwrap();
+        let role = |name: &str, system: bool, permissions: &[&str]| {
+            let id = Uuid::now_v7().to_string();
+            database
+                .execute(
+                    "INSERT INTO roles(id,business_id,name,system) VALUES(?1,?2,?3,?4)",
+                    (&id, &business_id, name, system),
+                )
+                .unwrap();
+            for permission in permissions {
+                database
+                    .execute(
+                        "INSERT INTO role_permissions(role_id,permission_code) VALUES(?1,?2)",
+                        (&id, permission),
+                    )
+                    .unwrap();
+            }
+            id
+        };
+        let owner = role("Owner", true, &["business.manage"]);
+        let supervisor = role("Supervisor", false, &["shifts.manage", "reports.view"]);
+        let stock = role("Stock Controller", false, &["inventory.manage", "products.manage"]);
+        let viewer = role("Floor Viewer", false, &[]);
+
+        migrate(&database).unwrap();
+
+        let has = |role_id: &str, permission: &str| -> bool {
+            database
+                .query_row(
+                    "SELECT count(*) FROM role_permissions WHERE role_id = ?1 AND permission_code = ?2",
+                    (role_id, permission),
+                    |row| row.get::<_, i64>(0),
+                )
+                .unwrap()
+                > 0
+        };
+
+        // Owner receives everything, including the newly introduced permissions.
+        let permissions: i64 = database
+            .query_row("SELECT count(*) FROM permissions", [], |row| row.get(0))
+            .unwrap();
+        let owner_grants: i64 = database
+            .query_row(
+                "SELECT count(*) FROM role_permissions WHERE role_id = ?1",
+                [&owner],
+                |row| row.get(0),
+            )
+            .unwrap();
+        assert_eq!(owner_grants, permissions);
+        let owner_key: Option<String> = database
+            .query_row("SELECT role_key FROM roles WHERE id = ?1", [&owner], |row| {
+                row.get(0)
+            })
+            .unwrap();
+        assert_eq!(owner_key.as_deref(), Some("OWNER"));
+
+        // shifts.manage keeps its intended split capabilities.
+        for permission in [
+            "shifts.open_own",
+            "shifts.close_own",
+            "shifts.close_any",
+            "shifts.view_all",
+            "shifts.expected_cash.view",
+            "shifts.variance.view",
+            "reports.export",
+        ] {
+            assert!(has(&supervisor, permission), "supervisor lost {permission}");
+        }
+        assert!(!has(&supervisor, "products.cost.view"));
+        assert!(!has(&supervisor, "backups.manage"));
+
+        // Inventory/product managers keep the visibility their screens need.
+        for permission in [
+            "inventory.quantity.view",
+            "inventory.value.view",
+            "suppliers.manage",
+            "purchases.manage",
+            "products.cost.view",
+            "pos.catalog.view",
+        ] {
+            assert!(has(&stock, permission), "stock role lost {permission}");
+        }
+        assert!(!has(&stock, "shifts.close_any"));
+
+        // Accidental session-only reads become nothing.
+        let viewer_grants: i64 = database
+            .query_row(
+                "SELECT count(*) FROM role_permissions WHERE role_id = ?1",
+                [&viewer],
+                |row| row.get(0),
+            )
+            .unwrap();
+        assert_eq!(viewer_grants, 0);
+
+        // Every business gains a whitelist Cashier system role.
+        let cashier: String = database
+            .query_row(
+                "SELECT id FROM roles WHERE business_id = ?1 AND role_key = 'CASHIER'",
+                [&business_id],
+                |row| row.get(0),
+            )
+            .unwrap();
+        let cashier_grants: Vec<String> = database
+            .prepare(
+                "SELECT permission_code FROM role_permissions WHERE role_id = ?1 ORDER BY permission_code",
+            )
+            .unwrap()
+            .query_map([&cashier], |row| row.get(0))
+            .unwrap()
+            .collect::<std::result::Result<Vec<_>, _>>()
+            .unwrap();
+        let mut expected = role::CASHIER_PERMISSIONS
+            .iter()
+            .map(|value| (*value).to_owned())
+            .collect::<Vec<_>>();
+        expected.sort();
+        assert_eq!(cashier_grants, expected);
     }
 
     #[test]

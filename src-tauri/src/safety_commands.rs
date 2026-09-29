@@ -2,7 +2,10 @@ use localops_core::{backup, bootstrap, safety};
 use serde::Serialize;
 use tauri::State;
 
-use crate::{session_guard::require_active_context, DbState};
+use crate::{
+    session_guard::{require_active_context, require_owner},
+    DbState,
+};
 
 #[derive(Debug, Serialize)]
 #[serde(rename_all = "camelCase")]
@@ -39,10 +42,11 @@ pub struct SafetyStatusDto {
     backups: Vec<BackupDto>,
 }
 
+/// `OWNER_OR_PERMISSION`. Requires `backups.manage`.
 #[tauri::command]
 pub fn get_safety_status(state: State<'_, DbState>) -> Result<SafetyStatusDto, String> {
     let connection = state.connection.lock().map_err(|error| error.to_string())?;
-    let context = require_active_context(&connection, &state, Some("business.manage"))?;
+    let context = require_active_context(&connection, &state, Some("backups.manage"))?;
     let paths = bootstrap::AppPaths::windows_default().map_err(|error| error.to_string())?;
     let status = safety::inspect(&connection, &context.business_id, &paths.backups)
         .map_err(|error| error.to_string())?;
@@ -69,20 +73,22 @@ pub fn get_safety_status(state: State<'_, DbState>) -> Result<SafetyStatusDto, S
 #[tauri::command]
 pub fn create_manual_backup(state: State<'_, DbState>) -> Result<BackupDto, String> {
     let connection = state.connection.lock().map_err(|error| error.to_string())?;
-    require_active_context(&connection, &state, Some("business.manage"))?;
+    require_active_context(&connection, &state, Some("backups.manage"))?;
     let paths = bootstrap::AppPaths::windows_default().map_err(|error| error.to_string())?;
     backup::create_backup(&connection, &paths.backups, "manual")
         .map(Into::into)
         .map_err(|error| error.to_string())
 }
 
+/// `OWNER_ONLY`. Restore is deliberately undelegated in V1: the caller needs
+/// `backups.manage` **and** the `OWNER` system role.
 #[tauri::command]
 pub fn restore_local_backup(
     state: State<'_, DbState>,
     filename: String,
 ) -> Result<BackupDto, String> {
     let mut connection = state.connection.lock().map_err(|error| error.to_string())?;
-    require_active_context(&connection, &state, Some("business.manage"))?;
+    require_owner(&connection, &state, "backups.manage")?;
     let paths = bootstrap::AppPaths::windows_default().map_err(|error| error.to_string())?;
     let restored = backup::restore_backup(&mut connection, &paths.backups, &filename)
         .map_err(|error| error.to_string())?;

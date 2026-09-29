@@ -1,3 +1,9 @@
+//! Inventory and procurement commands.
+//!
+//! Classification: all `OWNER_OR_PERMISSION`. The snapshot needs
+//! `inventory.quantity.view`; suppliers need `suppliers.manage`; receiving
+//! needs `purchases.manage`; movements need `inventory.manage`.
+
 use localops_core::{inventory, inventory_operations, location, packaging, purchasing};
 use serde::{Deserialize, Serialize};
 use tauri::State;
@@ -76,7 +82,7 @@ pub struct InventorySnapshot {
 #[tauri::command]
 pub fn get_inventory_snapshot(state: State<'_, DbState>) -> Result<InventorySnapshot, String> {
     let connection = state.connection.lock().map_err(|error| error.to_string())?;
-    let context = require_active_context(&connection, &state, None)?;
+    let context = require_active_context(&connection, &state, Some("inventory.quantity.view"))?;
     let locations = location::list_locations(&connection, &context.business_id)
         .map_err(|error| error.to_string())?
         .into_iter()
@@ -97,14 +103,18 @@ pub fn get_inventory_snapshot(state: State<'_, DbState>) -> Result<InventorySnap
             version: value.version,
         })
         .collect();
-    let suppliers = purchasing::list_suppliers(&connection, &context.business_id)
-        .map_err(|error| error.to_string())?
-        .into_iter()
-        .map(|value| SupplierDto {
-            id: value.id,
-            name: value.name,
-        })
-        .collect();
+    let suppliers = if context.has_permission("suppliers.manage") {
+        purchasing::list_suppliers(&connection, &context.business_id)
+            .map_err(|error| error.to_string())?
+            .into_iter()
+            .map(|value| SupplierDto {
+                id: value.id,
+                name: value.name,
+            })
+            .collect()
+    } else {
+        Vec::new()
+    };
     let mut product_statement = connection
         .prepare(
             "SELECT s.id, s.name, p.base_unit_id, u.code
@@ -204,7 +214,7 @@ pub fn create_inventory_supplier(
     input: SupplierInput,
 ) -> Result<String, String> {
     let connection = state.connection.lock().map_err(|error| error.to_string())?;
-    let context = require_active_context(&connection, &state, Some("inventory.manage"))?;
+    let context = require_active_context(&connection, &state, Some("suppliers.manage"))?;
     purchasing::create_supplier(
         &connection,
         purchasing::NewSupplier {
@@ -252,7 +262,7 @@ pub fn receive_inventory_purchase(
     input: ReceivePurchaseInput,
 ) -> Result<String, String> {
     let connection = state.connection.lock().map_err(|error| error.to_string())?;
-    let context = require_active_context(&connection, &state, Some("inventory.manage"))?;
+    let context = require_active_context(&connection, &state, Some("purchases.manage"))?;
     let items = input
         .items
         .iter()

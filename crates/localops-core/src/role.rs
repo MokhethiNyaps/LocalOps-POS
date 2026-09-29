@@ -7,9 +7,28 @@ pub struct Role {
     pub id: String,
     pub business_id: String,
     pub name: String,
+    pub role_key: Option<String>,
     pub system: bool,
     pub active: bool,
 }
+
+/// Stable machine identity of the Owner system role.
+pub const OWNER_ROLE_KEY: &str = "OWNER";
+/// Stable machine identity of the Cashier system role.
+pub const CASHIER_ROLE_KEY: &str = "CASHIER";
+
+/// The exact default Cashier permission whitelist required by the
+/// Owner/Cashier access control specification.
+pub const CASHIER_PERMISSIONS: [&str; 8] = [
+    "pos.catalog.view",
+    "sales.create",
+    "payments.record",
+    "sales.view_own_current_shift",
+    "receipts.reprint_own_current_shift",
+    "shifts.open_own",
+    "shifts.close_own",
+    "shifts.view_own_current",
+];
 
 #[derive(Debug, Clone, PartialEq, Eq)]
 pub struct Permission {
@@ -17,10 +36,11 @@ pub struct Permission {
     pub description: String,
 }
 
-pub fn create_role(
+pub fn create_keyed_role(
     connection: &Connection,
     business_id: &str,
     name: &str,
+    role_key: Option<&str>,
     system: bool,
 ) -> Result<String> {
     let name = name.trim();
@@ -41,27 +61,121 @@ pub fn create_role(
 
     let id = Uuid::now_v7().to_string();
     connection.execute(
-        "INSERT INTO roles(id, business_id, name, system) VALUES(?1, ?2, ?3, ?4)",
-        (&id, business_id, name, system),
+        "INSERT INTO roles(id, business_id, name, role_key, system) VALUES(?1, ?2, ?3, ?4, ?5)",
+        (&id, business_id, name, role_key, system),
     )?;
     Ok(id)
 }
 
+/// Create a role without a stable machine role key (custom/legacy roles).
+pub fn create_role(
+    connection: &Connection,
+    business_id: &str,
+    name: &str,
+    system: bool,
+) -> Result<String> {
+    create_keyed_role(connection, business_id, name, None, system)
+}
+
+/// Look up a role by its stable machine key within a business.
+pub fn find_role_by_key(
+    connection: &Connection,
+    business_id: &str,
+    role_key: &str,
+) -> Result<Option<Role>> {
+    connection
+        .query_row(
+            "SELECT id, business_id, name, role_key, system, active
+             FROM roles WHERE business_id = ?1 AND role_key = ?2",
+            (business_id, role_key),
+            map_role,
+        )
+        .optional()
+        .map_err(Into::into)
+}
+
+/// Ensure the business has the deterministic OWNER and CASHIER system roles with
+/// the permission sets required by the access-control specification. Owner always
+/// receives every known permission; Cashier keeps its exact whitelist.
+pub fn ensure_system_roles(connection: &Connection, business_id: &str) -> Result<()> {
+    let owner_id = match find_role_by_key(connection, business_id, OWNER_ROLE_KEY)? {
+        Some(role) => role.id,
+        None => create_keyed_role(
+            connection,
+            business_id,
+            "Owner",
+            Some(OWNER_ROLE_KEY),
+            true,
+        )?,
+    };
+    for permission in list_permissions(connection)? {
+        grant_permission(connection, &owner_id, &permission.code, None)?;
+    }
+    let cashier_id = match find_role_by_key(connection, business_id, CASHIER_ROLE_KEY)? {
+        Some(role) => role.id,
+        None => create_keyed_role(
+            connection,
+            business_id,
+            "Cashier",
+            Some(CASHIER_ROLE_KEY),
+            true,
+        )?,
+    };
+    for permission in CASHIER_PERMISSIONS {
+        grant_permission(connection, &cashier_id, permission, None)?;
+    }
+    Ok(())
+}
+
+/// Stable system role keys granted to a user through active role assignments.
+pub fn user_system_role_keys(connection: &Connection, user_id: &str) -> Result<Vec<String>> {
+    let mut statement = connection.prepare(
+        "SELECT DISTINCT r.role_key
+         FROM user_roles ur
+         JOIN users u ON u.id = ur.user_id AND u.active = 1
+         JOIN roles r ON r.id = ur.role_id AND r.active = 1
+         WHERE ur.user_id = ?1 AND r.role_key IS NOT NULL
+         ORDER BY r.role_key",
+    )?;
+    statement
+        .query_map([user_id], |row| row.get(0))?
+        .collect::<std::result::Result<Vec<_>, _>>()
+        .map_err(Into::into)
+}
+
+/// Active roles assigned to a user.
+pub fn list_user_roles(connection: &Connection, user_id: &str) -> Result<Vec<Role>> {
+    let mut statement = connection.prepare(
+        "SELECT r.id, r.business_id, r.name, r.role_key, r.system, r.active
+         FROM user_roles ur
+         JOIN roles r ON r.id = ur.role_id AND r.active = 1
+         WHERE ur.user_id = ?1
+         ORDER BY r.name",
+    )?;
+    statement
+        .query_map([user_id], map_role)?
+        .collect::<std::result::Result<Vec<_>, _>>()
+        .map_err(Into::into)
+}
+
+fn map_role(row: &rusqlite::Row<'_>) -> rusqlite::Result<Role> {
+    Ok(Role {
+        id: row.get(0)?,
+        business_id: row.get(1)?,
+        name: row.get(2)?,
+        role_key: row.get(3)?,
+        system: row.get(4)?,
+        active: row.get(5)?,
+    })
+}
+
 pub fn list_roles(connection: &Connection, business_id: &str) -> Result<Vec<Role>> {
     let mut statement = connection.prepare(
-        "SELECT id, business_id, name, system, active
+        "SELECT id, business_id, name, role_key, system, active
          FROM roles WHERE business_id = ?1 AND active = 1 ORDER BY name",
     )?;
     statement
-        .query_map([business_id], |row| {
-            Ok(Role {
-                id: row.get(0)?,
-                business_id: row.get(1)?,
-                name: row.get(2)?,
-                system: row.get(3)?,
-                active: row.get(4)?,
-            })
-        })?
+        .query_map([business_id], map_role)?
         .collect::<std::result::Result<Vec<_>, _>>()
         .map_err(Into::into)
 }

@@ -25,3 +25,6 @@ tauri = { version = "2.11.6", features = [] }
 rusqlite = { version = "0.37", features = ["bundled"] }
 
 localops-core = { path = "../crates/localops-core" }
+
+[dev-dependencies]
+localops-core = { path = "../crates/localops-core", features = ["test-support"] }
