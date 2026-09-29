@@ -12,18 +12,12 @@ on:
 jobs:
   frontend:
     name: Frontend (vitest + build)
-    runs-permissions:
-  contents: write
-
-on: ubuntu-latest
+    runs-on: ubuntu-latest
     steps:
       - uses: actions/checkout@v4
       - uses: actions/setup-node@v4
         with:
-          node-versipermissions:
-  contents: write
-
-on: '20'
+          node-version: '20'
           cache: npm
       - run: npm ci
       - run: npm test -- --run
@@ -31,10 +25,7 @@ on: '20'
 
   rust:
     name: Rust (tests + clippy)
-    runs-permissions:
-  contents: write
-
-on: ubuntu-latest
+    runs-on: ubuntu-latest
     steps:
       - uses: actions/checkout@v4
       - uses: dtolnay/rust-toolchain@stable
@@ -51,7 +42,6 @@ on: ubuntu-latest
           npm ci
           npm run build
       - name: cargo test
-        id: test
         run: cargo test --workspace 2>&1 | tee -a /tmp/rust.log; exit ${PIPESTATUS[0]}
       - name: cargo clippy
         if: always()
