@@ -19,11 +19,13 @@ The implementation agent MUST:
 
 1. Read this document completely before editing code.
 2. Read the current repository documentation, especially:
+   - `README.md`
    - `docs/MASTER-ARCHITECTURE.md`
-   - `docs/USER-MANUAL.md`
-   - `docs/BUILD-PLAN.md`
+   - `docs/SCHEMA-V1.md`
    - `docs/localops-pos/PROGRESS.md`
-   - relevant release/checklist documentation
+   - `docs/RELEASE-CHECKLIST.md`
+
+   Documentation removed from the working tree is not an implementation source. Where this specification requires a new `docs/USER-MANUAL.md` after implementation, create it from the completed behavior rather than relying on an obsolete manual.
 3. Inspect the current Rust, Tauri command, React/TypeScript, migration, and SQLite implementation before making changes.
 4. Produce an inventory of:
    - current permission keys;
