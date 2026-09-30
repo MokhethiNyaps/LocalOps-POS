@@ -1,16 +1,21 @@
+//! Catalogue administration commands.
+//!
+//! Classification: every command in this module is `OWNER_OR_PERMISSION` and
+//! requires `products.manage`. Cost fields are only serialized for callers who
+//! also hold `products.cost.view`.
+
 use localops_core::{audit, availability, catalogue, category, packaging, recipe, unit};
 use rusqlite::Connection;
 use serde::{Deserialize, Serialize};
 use tauri::State;
 
-use crate::{
-    session_guard::{require_active_context, ActiveContext},
-    DbState,
-};
+use crate::{session_guard::require_active_context, DbState};
+
+use localops_core::access::AccessContext;
 
 fn record_catalogue_audit(
     connection: &Connection,
-    context: &ActiveContext,
+    context: &AccessContext,
     action: &str,
     entity_type: &str,
     entity_id: &str,
@@ -107,7 +112,8 @@ pub struct CatalogueSnapshot {
 #[tauri::command]
 pub fn get_catalogue_snapshot(state: State<'_, DbState>) -> Result<CatalogueSnapshot, String> {
     let connection = state.connection.lock().map_err(|error| error.to_string())?;
-    let context = require_active_context(&connection, &state, None)?;
+    let context = require_active_context(&connection, &state, Some("products.manage"))?;
+    let may_see_cost = context.has_permission("products.cost.view");
     let categories = category::get_categories_by_business(&connection, &context.business_id, true)
         .map_err(|error| error.to_string())?
         .into_iter()
@@ -182,7 +188,10 @@ pub fn get_catalogue_snapshot(state: State<'_, DbState>) -> Result<CatalogueSnap
             sku: sellable.sku,
             product_code: sellable.product_code,
             base_unit_id: product.as_ref().map(|value| value.base_unit_id.clone()),
-            cost_minor: product.as_ref().map(|value| value.cost_minor),
+            cost_minor: product
+                .as_ref()
+                .filter(|_| may_see_cost)
+                .map(|value| value.cost_minor),
             track_stock: product.as_ref().map(|value| value.track_stock),
             duration_minutes: service.and_then(|value| value.duration_minutes),
             has_recipe,

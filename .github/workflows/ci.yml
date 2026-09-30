@@ -1,0 +1,60 @@
+name: CI
+
+permissions:
+  contents: write
+
+on:
+  push:
+    branches: ['**']
+  pull_request:
+  workflow_dispatch:
+
+jobs:
+  frontend:
+    name: Frontend (vitest + build)
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+      - uses: actions/setup-node@v4
+        with:
+          node-version: '20'
+          cache: npm
+      - run: npm ci
+      - run: npm test -- --run
+      - run: npm run build
+
+  rust:
+    name: Rust (tests + clippy)
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+      - uses: dtolnay/rust-toolchain@stable
+        with:
+          components: clippy
+      - uses: Swatinem/rust-cache@v2
+      - name: Install Tauri system dependencies
+        run: |
+          sudo apt-get update
+          sudo apt-get install -y libwebkit2gtk-4.1-dev libappindicator3-dev librsvg2-dev patchelf \
+            libgtk-3-dev libsoup-3.0-dev libjavascriptcoregtk-4.1-dev
+      - name: Build the frontend bundle Tauri expects
+        run: |
+          npm ci
+          npm run build
+      - name: cargo test
+        run: cargo test --workspace 2>&1 | tee -a /tmp/rust.log; exit ${PIPESTATUS[0]}
+      - name: cargo clippy
+        if: always()
+        run: cargo clippy --workspace --all-targets -- -D warnings 2>&1 | tee -a /tmp/rust.log; exit ${PIPESTATUS[0]}
+      - name: Report compiler output
+        if: failure()
+        env:
+          GH_TOKEN: ${{ github.token }}
+        run: |
+          set +e
+          grep -E "^(error|warning|thread|failures:)" -A 8 /tmp/rust.log > /tmp/report.txt
+          if [ ! -s /tmp/report.txt ]; then tail -n 400 /tmp/rust.log > /tmp/report.txt; fi
+          tail -c 55000 /tmp/report.txt > /tmp/report.trim
+          jq -Rs '{body: .}' /tmp/report.trim > /tmp/body.json
+          gh api repos/${{ github.repository }}/commits/${{ github.sha }}/comments --input /tmp/body.json
+          exit 0

@@ -1,32 +1,18 @@
-use localops_core::{payment, refund, role, sales, shift};
+//! Point-of-sale commands.
+//!
+//! Classification: `get_pos_snapshot`, `open_pos_shift`, `complete_pos_sale`,
+//! `get_sale_receipt`, `get_own_current_shift` and `get_own_current_shift_sales`
+//! are `CASHIER_SCOPED`; `create_pos_refund` is `OWNER_OR_PERMISSION` with the
+//! supervisory shift rule.
+
+use localops_core::{
+    cashier::{self, CashierSaleSummary, CashierSellableItem, OwnShiftView},
+    payment, refund, sales, shift,
+};
 use serde::{Deserialize, Serialize};
 use tauri::State;
 
 use crate::{session_guard::require_active_context, DbState};
-
-const POS_ITEM_QUERY: &str = "SELECT s.id, d.id, d.name, s.name, s.kind,
-            COALESCE(ds.price_override_minor, s.price_minor), s.taxable,
-            s.sku, s.product_code, s.barcode
-     FROM department_sellables ds
-     JOIN departments d ON d.id = ds.department_id
-     JOIN sellable_items s ON s.id = ds.sellable_id
-     WHERE d.business_id = ?1 AND d.active = 1 AND s.active = 1 AND ds.active = 1
-     ORDER BY d.name, s.name";
-
-#[derive(Debug, Serialize)]
-#[serde(rename_all = "camelCase")]
-pub struct PosItemDto {
-    id: String,
-    department_id: String,
-    department_name: String,
-    name: String,
-    kind: String,
-    price_minor: i64,
-    taxable: bool,
-    sku: Option<String>,
-    product_code: Option<String>,
-    barcode: Option<String>,
-}
 
 #[derive(Debug, Serialize)]
 #[serde(rename_all = "camelCase")]
@@ -39,35 +25,20 @@ pub struct PaymentMethodDto {
 
 #[derive(Debug, Serialize)]
 #[serde(rename_all = "camelCase")]
-pub struct ShiftDto {
-    id: String,
-    opening_balance_minor: i64,
-    expected_balance_minor: i64,
-    opened_at: String,
-}
-
-#[derive(Debug, Serialize)]
-#[serde(rename_all = "camelCase")]
-pub struct RecentSaleDto {
-    id: String,
-    sale_number: String,
-    status: String,
-    total_minor: i64,
-    completed_at: String,
-}
-
-#[derive(Debug, Serialize)]
-#[serde(rename_all = "camelCase")]
 pub struct PosSnapshot {
     business_name: String,
     currency: String,
     tax_enabled: bool,
     tax_rate_ppm: i64,
     prices_include_tax: bool,
-    items: Vec<PosItemDto>,
+    items: Vec<CashierSellableItem>,
     payment_methods: Vec<PaymentMethodDto>,
-    open_shift: Option<ShiftDto>,
-    recent_sales: Vec<RecentSaleDto>,
+    open_shift: Option<OwnShiftView>,
+    recent_sales: Vec<CashierSaleSummary>,
+    can_discount: bool,
+    can_refund: bool,
+    can_void: bool,
+    can_view_all_sales: bool,
 }
 
 #[derive(Debug, Serialize)]
@@ -232,10 +203,14 @@ impl From<refund::CompletedRefund> for RefundReceiptDto {
     }
 }
 
+/// `CASHIER_SCOPED`. Requires `pos.catalog.view`. The catalogue is limited to
+/// the department of the authenticated session terminal, recent sales are
+/// limited to the caller's own current open shift, and expected cash is only
+/// present with `shifts.expected_cash.view`.
 #[tauri::command]
 pub fn get_pos_snapshot(state: State<'_, DbState>) -> Result<PosSnapshot, String> {
     let connection = state.connection.lock().map_err(|error| error.to_string())?;
-    let context = require_active_context(&connection, &state, None)?;
+    let context = require_active_context(&connection, &state, Some("pos.catalog.view"))?;
     let (business_name, currency, tax_enabled, tax_rate_ppm, prices_include_tax): (
         String,
         String,
@@ -273,64 +248,14 @@ pub fn get_pos_snapshot(state: State<'_, DbState>) -> Result<PosSnapshot, String
         kind: method.kind,
     })
     .collect();
-    let mut item_statement = connection
-        .prepare(POS_ITEM_QUERY)
-        .map_err(|error| error.to_string())?;
-    let items = item_statement
-        .query_map([&context.business_id], |row| {
-            Ok(PosItemDto {
-                id: row.get(0)?,
-                department_id: row.get(1)?,
-                department_name: row.get(2)?,
-                name: row.get(3)?,
-                kind: row.get(4)?,
-                price_minor: row.get(5)?,
-                taxable: row.get(6)?,
-                sku: row.get(7)?,
-                product_code: row.get(8)?,
-                barcode: row.get(9)?,
-            })
-        })
-        .map_err(|error| error.to_string())?
-        .collect::<std::result::Result<Vec<_>, _>>()
-        .map_err(|error| error.to_string())?;
-    let open_shift = shift::get_open_shift(&connection, &context.business_id, &context.terminal_id)
-        .map_err(|error| error.to_string())?
-        .map(|value| {
-            let expected_balance_minor = connection
-                .query_row(
-                    "SELECT expected_balance_minor FROM shifts WHERE id = ?1",
-                    [&value.id],
-                    |row| row.get(0),
-                )
-                .unwrap_or(value.opening_balance_minor);
-            ShiftDto {
-                id: value.id,
-                opening_balance_minor: value.opening_balance_minor,
-                expected_balance_minor,
-                opened_at: value.opened_at,
-            }
-        });
-    let mut sale_statement = connection
-        .prepare(
-            "SELECT id, sale_number, status, total_minor, completed_at
-             FROM sales WHERE business_id = ?1
-             ORDER BY completed_at DESC, created_at DESC LIMIT 25",
-        )
-        .map_err(|error| error.to_string())?;
-    let recent_sales = sale_statement
-        .query_map([&context.business_id], |row| {
-            Ok(RecentSaleDto {
-                id: row.get(0)?,
-                sale_number: row.get(1)?,
-                status: row.get(2)?,
-                total_minor: row.get(3)?,
-                completed_at: row.get(4)?,
-            })
-        })
-        .map_err(|error| error.to_string())?
-        .collect::<std::result::Result<Vec<_>, _>>()
-        .map_err(|error| error.to_string())?;
+    let items = cashier::pos_catalogue(&connection, &context).map_err(|error| error.to_string())?;
+    let open_shift = if context.has_permission("shifts.view_own_current") {
+        cashier::get_own_current_shift(&connection, &context).map_err(|error| error.to_string())?
+    } else {
+        None
+    };
+    let recent_sales =
+        cashier::recent_sales(&connection, &context, 25).map_err(|error| error.to_string())?;
     Ok(PosSnapshot {
         business_name,
         currency,
@@ -341,7 +266,30 @@ pub fn get_pos_snapshot(state: State<'_, DbState>) -> Result<PosSnapshot, String
         payment_methods: methods,
         open_shift,
         recent_sales,
+        can_discount: context.has_permission("sales.discount"),
+        can_refund: context.has_permission("sales.refund"),
+        can_void: context.has_permission("sales.void"),
+        can_view_all_sales: context.has_permission("sales.view_all"),
     })
+}
+
+/// `CASHIER_SCOPED`. Requires `shifts.view_own_current`.
+#[tauri::command]
+pub fn get_own_current_shift(state: State<'_, DbState>) -> Result<Option<OwnShiftView>, String> {
+    let connection = state.connection.lock().map_err(|error| error.to_string())?;
+    let context = require_active_context(&connection, &state, Some("shifts.view_own_current"))?;
+    cashier::get_own_current_shift(&connection, &context).map_err(|error| error.to_string())
+}
+
+/// `CASHIER_SCOPED`. Requires `sales.view_own_current_shift` (or the broader
+/// `sales.view_all` for Owner workflows).
+#[tauri::command]
+pub fn get_own_current_shift_sales(
+    state: State<'_, DbState>,
+) -> Result<Vec<CashierSaleSummary>, String> {
+    let connection = state.connection.lock().map_err(|error| error.to_string())?;
+    let context = require_active_context(&connection, &state, None)?;
+    cashier::recent_sales(&connection, &context, 50).map_err(|error| error.to_string())
 }
 
 #[derive(Debug, Deserialize)]
@@ -351,19 +299,22 @@ pub struct OpenShiftInput {
     opened_at: String,
 }
 
+/// `CASHIER_SCOPED`. Requires `shifts.open_own`. Only the authenticated user
+/// and the session terminal are used; an open shift owned by another employee
+/// is reported as in use rather than handed over.
 #[tauri::command]
-pub fn open_pos_shift(state: State<'_, DbState>, input: OpenShiftInput) -> Result<String, String> {
+pub fn open_pos_shift(
+    state: State<'_, DbState>,
+    input: OpenShiftInput,
+) -> Result<OwnShiftView, String> {
     let connection = state.connection.lock().map_err(|error| error.to_string())?;
-    let context = require_active_context(&connection, &state, Some("shifts.manage"))?;
-    shift::open_shift(
+    let context = require_active_context(&connection, &state, Some("shifts.open_own"))?;
+    cashier::open_own_shift(
         &connection,
-        &context.business_id,
-        &context.terminal_id,
-        &context.user_id,
+        &context,
         input.opening_balance_minor,
         &input.opened_at,
     )
-    .map(|value| value.id)
     .map_err(|error| error.to_string())
 }
 
@@ -396,21 +347,28 @@ pub struct CompleteSaleInput {
     payments: Vec<SalePaymentCommandInput>,
 }
 
+/// `CASHIER_SCOPED`. Requires `sales.create` and `payments.record`, plus
+/// `sales.discount` for any non-zero discount. The sale is bound to the
+/// session business, terminal and department and to the caller's own open
+/// shift; a frontend-supplied cashier, terminal or department is never trusted.
 #[tauri::command]
 pub fn complete_pos_sale(
     state: State<'_, DbState>,
     input: CompleteSaleInput,
 ) -> Result<SaleReceiptDto, String> {
     let connection = state.connection.lock().map_err(|error| error.to_string())?;
-    let context = require_active_context(&connection, &state, Some("sales.create"))?;
-    if !role::user_has_permission(&connection, &context.user_id, "payments.record")
-        .map_err(|error| error.to_string())?
-    {
-        return Err("Permission denied: payments.record".to_owned());
-    }
-    let open_shift = shift::get_open_shift(&connection, &context.business_id, &context.terminal_id)
-        .map_err(|error| error.to_string())?
-        .ok_or_else(|| "Open a shift before completing a sale".to_owned())?;
+    let context = require_active_context(&connection, &state, None)?;
+    let scopes = input
+        .lines
+        .iter()
+        .map(|line| cashier::SaleLineScope {
+            department_id: &line.department_id,
+            discount_minor: line.discount_minor,
+        })
+        .collect::<Vec<_>>();
+    cashier::authorize_sale_request(&context, &scopes).map_err(|error| error.to_string())?;
+    let open_shift = localops_core::access::require_current_own_shift(&connection, &context)
+        .map_err(|_| "Open your own shift before completing a sale".to_owned())?;
     let lines = input
         .lines
         .iter()
@@ -451,17 +409,12 @@ pub fn complete_pos_sale(
     .map_err(|error| error.to_string())
 }
 
-#[cfg(test)]
-mod tests {
-    use super::POS_ITEM_QUERY;
-
-    #[test]
-    fn pos_item_query_matches_the_migrated_schema() {
-        let database = localops_core::open_memory_database().unwrap();
-        database.prepare(POS_ITEM_QUERY).unwrap();
-    }
-}
-
+/// `CASHIER_SCOPED` / `OWNER_OR_PERMISSION`.
+///
+/// Any later lookup by `sale_id` is a reprint. `receipts.reprint_all` allows
+/// the Owner workflow; otherwise the caller needs
+/// `receipts.reprint_own_current_shift` and the sale must be their own, on the
+/// session terminal, inside their current open shift.
 #[tauri::command]
 pub fn get_sale_receipt(
     state: State<'_, DbState>,
@@ -469,17 +422,9 @@ pub fn get_sale_receipt(
 ) -> Result<SaleReceiptDto, String> {
     let connection = state.connection.lock().map_err(|error| error.to_string())?;
     let context = require_active_context(&connection, &state, None)?;
-    let owned: bool = connection
-        .query_row(
-            "SELECT EXISTS(SELECT 1 FROM sales WHERE id = ?1 AND business_id = ?2)",
-            (&sale_id, &context.business_id),
-            |row| row.get(0),
-        )
+    let scope = localops_core::access::authorize_receipt_reprint(&connection, &context, &sale_id)
         .map_err(|error| error.to_string())?;
-    if !owned {
-        return Err("Sale not found".to_owned());
-    }
-    sales::load_completed_sale(&connection, &sale_id)
+    sales::load_completed_sale(&connection, &scope.sale_id)
         .map(Into::into)
         .map_err(|error| error.to_string())
 }
@@ -513,6 +458,11 @@ pub struct CreateRefundInput {
     payments: Vec<RefundPaymentCommandInput>,
 }
 
+/// `OWNER_OR_PERMISSION`. Requires `sales.refund` or `sales.void`.
+///
+/// Supervisory rule: the reversal uses the session terminal's current open
+/// shift even when that shift belongs to a Cashier. The action is attributed to
+/// the authenticated actor and shift ownership is never changed.
 #[tauri::command]
 pub fn create_pos_refund(
     state: State<'_, DbState>,

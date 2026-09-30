@@ -6,8 +6,24 @@ export const setupSteps = ['Business setup', 'Departments & locations', 'Product
 type BootstrapTerminal = { id: string; name: string; departmentId: string | null };
 type BootstrapBusiness = { id: string; name: string; terminals: BootstrapTerminal[] };
 type AppBootstrap = { setupRequired: boolean; businesses: BootstrapBusiness[] };
-type SessionView = { businessId: string; terminalId: string; departmentId: string | null; displayName: string };
-type SetupResult = { businessId: string; departmentId: string; terminalId: string };
+export type SessionView = {
+  sessionId: string;
+  businessId: string;
+  businessName: string;
+  userId: string;
+  username: string;
+  displayName: string;
+  terminalId: string;
+  terminalName: string;
+  departmentId: string | null;
+  departmentName: string | null;
+  permissions: string[];
+  systemRoles: string[];
+  roleLabel: string;
+};
+export type Employee = { id: string; username: string; displayName: string; active: boolean; lockedUntil: string | null; roles: EmployeeRole[] };
+export type EmployeeRole = { id: string; name: string; roleKey: string | null; system: boolean };
+type EmployeeDirectory = { employees: Employee[]; roles: EmployeeRole[] };
 type Category = { id: string; name: string; parentId: string | null };
 type Unit = { id: string; code: string; name: string; dimension: string; scaleNum: number; scaleDen: number; decimalPlaces: number };
 type Packaging = { id: string; unitId: string; name: string; factorNum: number; factorDen: number; canPurchase: boolean; canSell: boolean };
@@ -23,13 +39,13 @@ type InventoryMovement = { id: string; productName: string; locationName: string
 type InventorySnapshot = { locations: InventoryLocation[]; products: InventoryProduct[]; balances: InventoryBalance[]; suppliers: InventorySupplier[]; recentMovements: InventoryMovement[]; reconciliationDifferenceCount: number };
 export type PosItem = { id: string; departmentId: string; departmentName: string; name: string; kind: string; priceMinor: number; taxable: boolean; sku: string | null; productCode: string | null; barcode: string | null };
 type PosPaymentMethod = { id: string; code: string; name: string; kind: string };
-type PosShift = { id: string; openingBalanceMinor: number; expectedBalanceMinor: number; openedAt: string };
+type PosShift = { id: string; openingBalanceMinor: number; expectedBalanceMinor: number | null; openedAt: string; status: string };
 type RecentSale = { id: string; saleNumber: string; status: string; totalMinor: number; completedAt: string };
-type PosSnapshot = { businessName: string; currency: string; taxEnabled: boolean; taxRatePpm: number; pricesIncludeTax: boolean; items: PosItem[]; paymentMethods: PosPaymentMethod[]; openShift: PosShift | null; recentSales: RecentSale[] };
+type PosSnapshot = { businessName: string; currency: string; taxEnabled: boolean; taxRatePpm: number; pricesIncludeTax: boolean; items: PosItem[]; paymentMethods: PosPaymentMethod[]; openShift: PosShift | null; recentSales: RecentSale[]; canDiscount: boolean; canRefund: boolean; canVoid: boolean; canViewAllSales: boolean };
 type ReceiptLine = { id: string; description: string; kind: string; quantityMicros: number; unitPriceMinor: number; discountMinor: number; taxMinor: number; lineTotalMinor: number };
 type ReceiptPayment = { id: string; methodName: string; methodKind: string; amountMinor: number; tenderedMinor: number | null; changeMinor: number; reference: string | null; status: string };
 type SaleReceipt = { id: string; saleNumber: string; currency: string; subtotalMinor: number; discountMinor: number; taxMinor: number; totalMinor: number; amountPaidMinor: number; changeDueMinor: number; completedAt: string; lines: ReceiptLine[]; payments: ReceiptPayment[]; idempotentReplay: boolean };
-type OpsShift = { id: string; terminalId: string; openingBalanceMinor: number; expectedBalanceMinor: number; actualBalanceMinor: number | null; varianceMinor: number | null; status: string; openedAt: string; closedAt: string | null; notes: string | null };
+type OpsShift = { id: string; terminalId: string; openingBalanceMinor: number; expectedBalanceMinor: number | null; openedByName: string | null; closedByName: string | null; actualBalanceMinor: number | null; varianceMinor: number | null; status: string; openedAt: string; closedAt: string | null; notes: string | null };
 type OpsOption = { id: string; name: string; kind: string | null };
 type OpsExpense = { id: string; categoryName: string; departmentName: string | null; paymentMethodName: string | null; amountMinor: number; currency: string; expenseDate: string; description: string; reference: string | null; receiptImagePath: string | null; status: string; shiftId: string };
 type OperationsSnapshot = { openShift: OpsShift | null; shifts: OpsShift[]; categories: OpsOption[]; departments: OpsOption[]; paymentMethods: OpsOption[]; expenses: OpsExpense[] };
@@ -44,6 +60,29 @@ type Act = (action: () => Promise<unknown>, success: string) => Promise<void>;
 
 const errorText = (reason: unknown) => reason instanceof Error ? reason.message : String(reason);
 
+/** Authorization is enforced in Rust; these helpers only shape the interface. */
+export const hasPermission = (session: SessionView, permission: string) => session.permissions.includes(permission);
+export const hasAnyPermission = (session: SessionView, permissions: string[]) => permissions.some(permission => hasPermission(session, permission));
+export const hasSystemRole = (session: SessionView, roleKey: string) => session.systemRoles.includes(roleKey);
+export type WorkspaceViewId = 'pos' | 'myshift' | 'sales' | 'items' | 'configuration' | 'inventory' | 'operations' | 'reports' | 'safety' | 'employees';
+export type NavItem = { id: WorkspaceViewId; label: string; detail: string; icon: string };
+
+/** Build the navigation for a session. Cashiers get the restricted workspace. */
+export function navigationFor(session: SessionView): NavItem[] {
+  const items: NavItem[] = [];
+  if (hasPermission(session, 'pos.catalog.view') || hasPermission(session, 'sales.create')) items.push({ id: 'pos', label: 'Point of Sale', detail: 'Products & checkout', icon: 'point_of_sale' });
+  if (hasPermission(session, 'shifts.view_own_current') && !hasPermission(session, 'shifts.view_all')) items.push({ id: 'myshift', label: 'My Shift', detail: 'Open and close your shift', icon: 'schedule' });
+  if (hasPermission(session, 'sales.view_own_current_shift') && !hasPermission(session, 'sales.view_all')) items.push({ id: 'sales', label: 'Recent Sales', detail: 'This shift only', icon: 'receipt_long' });
+  if (hasPermission(session, 'products.manage')) items.push({ id: 'items', label: 'Catalogue', detail: 'Products & services', icon: 'grid_view' });
+  if (hasPermission(session, 'inventory.quantity.view')) items.push({ id: 'inventory', label: 'Inventory', detail: 'Stock & movements', icon: 'inventory_2' });
+  if (hasPermission(session, 'shifts.view_all')) items.push({ id: 'operations', label: 'Shift & expenses', detail: 'Cash control & closeout', icon: 'account_balance_wallet' });
+  if (hasPermission(session, 'reports.view')) items.push({ id: 'reports', label: 'Reports', detail: 'Sales & performance', icon: 'bar_chart' });
+  if (hasPermission(session, 'users.manage')) items.push({ id: 'employees', label: 'Employees', detail: 'Accounts, PINs & roles', icon: 'group' });
+  if (hasPermission(session, 'products.manage')) items.push({ id: 'configuration', label: 'Setup tools', detail: 'Configure your catalogue', icon: 'settings' });
+  if (hasPermission(session, 'backups.manage')) items.push({ id: 'safety', label: 'Backup & safety', detail: 'Protect your business', icon: 'security' });
+  return items;
+}
+
 export function App() {
   const [mode, setMode] = useState<'setup' | 'login' | 'workspace'>('setup');
   const [bootstrap, setBootstrap] = useState<AppBootstrap>({ setupRequired: true, businesses: [] });
@@ -56,7 +95,7 @@ export function App() {
     }).catch(reason => setStartupError(errorText(reason)));
   }, []);
   const enterWorkspace = (next: SessionView) => { setSession(next); setMode('workspace'); };
-  if (mode === 'workspace' && session) return <Workspace session={session} onLogout={() => { setSession(null); setMode('login'); }} />;
+  if (mode === 'workspace' && session) return <Workspace key={session.sessionId} session={session} onLogout={() => { setSession(null); setMode('login'); void invoke<AppBootstrap>('get_app_bootstrap').then(setBootstrap).catch(() => undefined); }} />;
   return <div className="relative flex min-h-screen flex-col overflow-x-hidden bg-background">
     <div aria-hidden="true" className="pointer-events-none absolute inset-0 bg-[radial-gradient(ellipse_at_top,_var(--tw-gradient-stops))] from-primary/10 via-background to-background"></div>
     <main className="relative z-10 mx-auto flex w-full max-w-6xl flex-1 flex-col items-center justify-center gap-space-xl px-space-lg py-space-xl lg:flex-row lg:items-center lg:gap-12">
@@ -64,7 +103,7 @@ export function App() {
       <div className="w-full max-w-xl lg:max-w-lg">
         {startupError && <p className="mb-space-lg rounded-xl bg-error-container p-space-md font-body-md text-on-error-container shadow-sm" role="alert">The local database could not be opened: {startupError}</p>}
         {mode === 'setup'
-          ? <SetupView onComplete={(result, displayName) => enterWorkspace({ businessId: result.businessId, terminalId: result.terminalId, departmentId: result.departmentId, displayName })} />
+          ? <SetupView onComplete={enterWorkspace} />
           : <LoginView bootstrap={bootstrap} onLogin={enterWorkspace} />}
       </div>
     </main>
@@ -94,14 +133,14 @@ function BrandHeader() {
 type SetupFields = { businessName: string; departmentName: string; locationName: string; terminalName: string; ownerUsername: string; ownerDisplayName: string; ownerPin: string };
 const initialFields: SetupFields = { businessName: '', departmentName: '', locationName: '', terminalName: '', ownerUsername: '', ownerDisplayName: '', ownerPin: '' };
 
-export function SetupView({ onComplete = () => undefined }: { onComplete?: (result: SetupResult, displayName: string) => void }) {
+export function SetupView({ onComplete = () => undefined }: { onComplete?: (session: SessionView) => void }) {
   const [fields, setFields] = useState(initialFields);
   const [submitting, setSubmitting] = useState(false);
   const [error, setError] = useState<string | null>(null);
   const updateField = (name: keyof SetupFields, value: string) => setFields(current => ({ ...current, [name]: value }));
   async function createBusiness(event: FormEvent<HTMLFormElement>) {
     event.preventDefault(); if (submitting) return; setSubmitting(true); setError(null);
-    try { onComplete(await invoke<SetupResult>('complete_initial_setup', { input: fields }), fields.ownerDisplayName.trim()); }
+    try { onComplete(await invoke<SessionView>('complete_initial_setup', { input: fields })); }
     catch (reason) { setError(errorText(reason)); } finally { setSubmitting(false); }
   }
   return <section className="flex w-full flex-col overflow-hidden rounded-3xl border border-outline-variant/30 bg-surface-container-lowest shadow-2xl">
@@ -196,20 +235,13 @@ function LoginView({ bootstrap, onLogin }: { bootstrap: AppBootstrap; onLogin: (
 }
 
 function Workspace({ session, onLogout }: { session: SessionView; onLogout: () => void }) {
-  const [snapshot, setSnapshot] = useState<CatalogueSnapshot | null>(null); const [error, setError] = useState<string | null>(null); const [notice, setNotice] = useState<string | null>(null); const [view, setView] = useState<'pos' | 'items' | 'configuration' | 'inventory' | 'operations' | 'reports' | 'safety'>('pos');
-  const refresh = useCallback(async () => { try { setSnapshot(await invoke<CatalogueSnapshot>('get_catalogue_snapshot')); setError(null); } catch (reason) { setError(errorText(reason)); } }, []);
+  const navigation = navigationFor(session);
+  const [snapshot, setSnapshot] = useState<CatalogueSnapshot | null>(null); const [error, setError] = useState<string | null>(null); const [notice, setNotice] = useState<string | null>(null); const [view, setView] = useState<WorkspaceViewId>(navigation[0]?.id ?? 'pos');
+  const mayManageCatalogue = hasPermission(session, 'products.manage');
+  const refresh = useCallback(async () => { if (!mayManageCatalogue) return; try { setSnapshot(await invoke<CatalogueSnapshot>('get_catalogue_snapshot')); setError(null); } catch (reason) { setError(errorText(reason)); } }, [mayManageCatalogue]);
   useEffect(() => { void refresh(); }, [refresh]);
   async function act(action: () => Promise<unknown>, success: string) { setError(null); setNotice(null); try { await action(); setNotice(success); await refresh(); } catch (reason) { setError(errorText(reason)); } }
   async function logout() { try { await invoke('logout'); } finally { onLogout(); } }
-  const navigation: { id: typeof view; label: string; detail: string; icon: string }[] = [
-    { id: 'pos', label: 'Order entry', detail: 'Products & checkout', icon: 'point_of_sale' },
-    { id: 'items', label: 'Catalogue', detail: 'Products & services', icon: 'grid_view' },
-    { id: 'inventory', label: 'Inventory', detail: 'Stock & movements', icon: 'inventory_2' },
-    { id: 'operations', label: 'Shift & expenses', detail: 'Cash control & closeout', icon: 'account_balance_wallet' },
-    { id: 'reports', label: 'Reports', detail: 'Sales & performance', icon: 'bar_chart' },
-    { id: 'configuration', label: 'Setup tools', detail: 'Configure your catalogue', icon: 'settings' },
-    { id: 'safety', label: 'Backup & safety', detail: 'Protect your business', icon: 'security' },
-  ];
   return <div className="min-h-screen bg-background">
     <a className="sr-only focus:not-sr-only focus:fixed focus:left-space-md focus:top-space-md focus:z-[100] focus:rounded-lg focus:bg-primary focus:px-space-md focus:py-space-sm focus:font-body-md focus:text-on-primary focus:shadow-lg" href="#workspace-content">Skip to workspace</a>
     <header className="fixed left-0 right-0 top-0 z-50 flex h-header items-center justify-between gap-space-md border-b border-outline-variant/20 bg-surface-container-lowest px-space-md shadow-[0_4px_12px_rgba(0,0,0,0.45)]">
@@ -219,7 +251,7 @@ function Workspace({ session, onLogout }: { session: SessionView; onLogout: () =
         </div>
         <div className="flex min-w-0 flex-col">
           <span className="truncate font-headline-sm text-on-surface">LocalOps</span>
-          <span className="truncate font-badge-label uppercase text-primary-fixed">Terminal 1</span>
+          <span className="truncate font-badge-label uppercase text-primary-fixed">{session.terminalName}{session.departmentName ? ` · ${session.departmentName}` : ''}</span>
         </div>
       </div>
       <div className="flex items-center gap-space-md">
@@ -233,7 +265,7 @@ function Workspace({ session, onLogout }: { session: SessionView; onLogout: () =
         <div className="group flex items-center gap-space-sm">
           <div className="hidden min-w-0 flex-col items-end sm:flex">
             <span className="max-w-[12rem] truncate font-body-md font-medium text-on-surface">{session.displayName}</span>
-            <span className="font-body-sm text-primary">Manager</span>
+            <span className="font-body-sm text-primary">{session.roleLabel}</span>
           </div>
           <div className="flex h-10 w-10 flex-none items-center justify-center rounded-full border-2 border-surface-container-lowest bg-tertiary-container ring-2 ring-outline-variant">
             <span className="font-badge-label text-on-tertiary-container">{session.displayName.slice(0, 2).toUpperCase()}</span>
@@ -276,7 +308,7 @@ function Workspace({ session, onLogout }: { session: SessionView; onLogout: () =
 
     <div className="pl-rail lg:pl-sidebar">
       <main id="workspace-content" tabIndex={-1} className="mt-header flex min-h-[calc(100vh-theme(spacing.header))] w-full flex-col bg-background p-space-md outline-none">
-        {view === 'pos' ? <PosView /> : view === 'inventory' ? <InventoryView /> : view === 'operations' ? <OperationsView /> : view === 'reports' ? <ReportsView /> : view === 'safety' ? <SafetyView /> : <div className="mx-auto flex w-full max-w-7xl flex-col">
+        {view === 'pos' ? <PosView session={session} /> : view === 'myshift' ? <MyShiftView /> : view === 'sales' ? <RecentSalesView businessName={session.businessName} /> : view === 'employees' ? <EmployeesView session={session} /> : view === 'inventory' ? <InventoryView /> : view === 'operations' ? <OperationsView session={session} /> : view === 'reports' ? <ReportsView /> : view === 'safety' ? <SafetyView /> : <div className="mx-auto flex w-full max-w-7xl flex-col">
           <header className="mb-space-lg flex items-center justify-between">
             <div>
               <p className="mb-1 font-badge-label uppercase text-primary">Catalogue</p>
@@ -286,7 +318,7 @@ function Workspace({ session, onLogout }: { session: SessionView; onLogout: () =
           {error && <p className="mb-space-md rounded-xl bg-error-container p-space-md font-body-md text-on-error-container shadow-sm" role="alert">{error}</p>}
           {notice && <p className="mb-space-md rounded-xl bg-secondary-container p-space-md font-body-md text-on-secondary-container shadow-sm" role="status">{notice}</p>}
           {!snapshot
-            ? <div className="rounded-xl border border-outline-variant/20 bg-surface-container-lowest p-space-xl font-body-md text-on-surface-variant shadow-sm">Loading local catalogue…</div>
+            ? <div className="rounded-xl border border-outline-variant/20 bg-surface-container-lowest p-space-xl font-body-md text-on-surface-variant shadow-sm">{mayManageCatalogue ? 'Loading local catalogue…' : 'You do not have access to this section.'}</div>
             : view === 'items' ? <ItemsView snapshot={snapshot} act={act} /> : <ConfigurationView snapshot={snapshot} act={act} />}
         </div>}
       </main>
@@ -294,6 +326,103 @@ function Workspace({ session, onLogout }: { session: SessionView; onLogout: () =
   </div>;
 }
 
+
+
+/** Cashier "My Shift": blind close — no expected cash, no variance. */
+function MyShiftView() {
+  const [shift, setShift] = useState<PosShift | null>(null); const [loaded, setLoaded] = useState(false); const [openingCash, setOpeningCash] = useState('0.00'); const [countedCash, setCountedCash] = useState(''); const [notes, setNotes] = useState(''); const [error, setError] = useState<string | null>(null); const [notice, setNotice] = useState<string | null>(null); const [submitting, setSubmitting] = useState(false);
+  const refresh = useCallback(async () => { try { setShift(await invoke<PosShift | null>('get_own_current_shift')); setError(null); } catch (reason) { setError(errorText(reason)); } finally { setLoaded(true); } }, []);
+  useEffect(() => { void refresh(); }, [refresh]);
+  async function openShift(event: FormEvent<HTMLFormElement>) { event.preventDefault(); setSubmitting(true); setError(null); setNotice(null); try { await invoke('open_pos_shift', { input: { openingBalanceMinor: parseScaled(openingCash, 2), openedAt: new Date().toISOString() } }); setNotice('Shift opened. You can start selling.'); await refresh(); } catch (reason) { setError(errorText(reason)); } finally { setSubmitting(false); } }
+  async function closeShift(event: FormEvent<HTMLFormElement>) { event.preventDefault(); setSubmitting(true); setError(null); setNotice(null); try { await invoke('close_own_shift', { input: { actualBalanceMinor: parseScaled(countedCash, 2), closedAt: new Date().toISOString(), notes: notes || null } }); setNotice('Shift closed. Your counted cash was submitted to the owner.'); setCountedCash(''); setNotes(''); await refresh(); } catch (reason) { setError(errorText(reason)); } finally { setSubmitting(false); } }
+  return <div className="mx-auto flex w-full max-w-3xl flex-col">
+    <header className="mb-space-lg"><p className="font-badge-label uppercase text-primary">Cash control</p><h2 className="mt-1 font-headline-lg text-on-surface">My shift</h2></header>
+    {error && <p className="mb-space-md rounded-xl bg-error-container p-space-md font-body-md text-on-error-container shadow-sm" role="alert">{error}</p>}
+    {notice && <p className="mb-space-md rounded-xl bg-secondary-container p-space-md font-body-md text-on-secondary-container shadow-sm" role="status">{notice}</p>}
+    {!loaded ? <div className="rounded-xl border border-outline-variant/20 bg-surface-container-lowest p-space-xl text-center font-body-md text-on-surface-variant">Loading your shift…</div>
+      : shift ? <form className="flex flex-col gap-space-md rounded-2xl border border-outline-variant/20 bg-surface-container-lowest p-space-xl shadow-lg" onSubmit={closeShift}>
+          <div className="flex flex-wrap gap-space-lg">
+            <div className="flex flex-col"><span className="font-ticket-total text-on-surface">{formatMoney(shift.openingBalanceMinor)}</span><span className="font-badge-label uppercase text-on-surface-variant">Opening float</span></div>
+            <div className="flex flex-col"><span className="font-ticket-total text-on-surface">{new Date(shift.openedAt).toLocaleTimeString([], { hour: '2-digit', minute: '2-digit' })}</span><span className="font-badge-label uppercase text-on-surface-variant">Opened at</span></div>
+          </div>
+          <p className="font-body-md text-on-surface-variant">Count the drawer and enter the amount you actually have. The expected amount and any difference are reviewed by the business owner.</p>
+          <label className="w-full text-left"><span className="mb-2 block font-body-sm font-medium text-on-surface-variant">Counted cash</span>
+            <input value={countedCash} onChange={event => setCountedCash(event.target.value)} inputMode="decimal" required className="h-12 w-full rounded-xl border border-outline-variant/30 bg-surface px-space-md font-body-lg tabular-nums text-on-surface outline-none focus:border-primary focus:ring-1 focus:ring-primary" /></label>
+          <label className="w-full text-left"><span className="mb-2 block font-body-sm font-medium text-on-surface-variant">Notes (optional)</span>
+            <input value={notes} onChange={event => setNotes(event.target.value)} className="h-11 w-full rounded-xl border border-outline-variant/30 bg-surface px-space-md font-body-md text-on-surface outline-none focus:border-primary focus:ring-1 focus:ring-primary" /></label>
+          <button disabled={submitting} className="flex h-12 w-full items-center justify-center gap-2 rounded-xl bg-primary font-headline-sm text-on-primary transition-colors hover:bg-primary-fixed disabled:opacity-50"><span className="material-symbols-outlined text-[18px]">lock</span> Close my shift</button>
+        </form>
+      : <form className="flex flex-col gap-space-md rounded-2xl border border-outline-variant/20 bg-surface-container-lowest p-space-xl shadow-lg" onSubmit={openShift}>
+          <h3 className="font-headline-md text-on-surface">Open your shift</h3>
+          <p className="font-body-md text-on-surface-variant">Enter the cash you are starting with on this terminal.</p>
+          <label className="w-full text-left"><span className="mb-2 block font-body-sm font-medium text-on-surface-variant">Opening cash</span>
+            <input value={openingCash} onChange={event => setOpeningCash(event.target.value)} inputMode="decimal" required className="h-12 w-full rounded-xl border border-outline-variant/30 bg-surface px-space-md font-body-lg tabular-nums text-on-surface outline-none focus:border-primary focus:ring-1 focus:ring-primary" /></label>
+          <button disabled={submitting} className="flex h-12 w-full items-center justify-center gap-2 rounded-xl bg-primary font-headline-sm text-on-primary transition-colors hover:bg-primary-fixed disabled:opacity-50"><span className="material-symbols-outlined text-[18px]">lock_open</span> Open shift</button>
+        </form>}
+  </div>;
+}
+
+/** Cashier "Recent Sales": own sales in the current open shift only. */
+function RecentSalesView({ businessName }: { businessName: string }) {
+  const [sales, setSales] = useState<RecentSale[]>([]); const [receipt, setReceipt] = useState<SaleReceipt | null>(null); const [error, setError] = useState<string | null>(null); const [loaded, setLoaded] = useState(false);
+  useEffect(() => { void (async () => { try { setSales(await invoke<RecentSale[]>('get_own_current_shift_sales')); setError(null); } catch (reason) { setError(errorText(reason)); } finally { setLoaded(true); } })(); }, []);
+  async function openReceipt(saleId: string) { try { setReceipt(await invoke<SaleReceipt>('get_sale_receipt', { saleId })); setError(null); } catch (reason) { setError(errorText(reason)); } }
+  return <div className="mx-auto flex w-full max-w-5xl flex-col">
+    <header className="mb-space-lg"><p className="font-badge-label uppercase text-primary">This shift</p><h2 className="mt-1 font-headline-lg text-on-surface">Recent sales</h2></header>
+    {error && <p className="mb-space-md rounded-xl bg-error-container p-space-md font-body-md text-on-error-container shadow-sm" role="alert">{error}</p>}
+    <div className="overflow-hidden rounded-xl border border-outline-variant/20 bg-surface-container-lowest shadow-sm">
+      {!loaded ? <div className="p-space-xl text-center font-body-md text-on-surface-variant">Loading…</div>
+        : sales.length === 0 ? <div className="p-space-xl text-center font-body-md text-on-surface-variant">No sales in your current shift yet.</div>
+        : sales.map(sale => <button key={sale.id} onClick={() => void openReceipt(sale.id)} className="flex w-full items-center justify-between gap-space-md border-b border-outline-variant/10 px-space-lg py-space-md text-left last:border-b-0 hover:bg-surface-container">
+            <span className="flex flex-col"><span className="font-body-md text-on-surface">{sale.saleNumber}</span><span className="font-body-sm text-on-surface-variant">{new Date(sale.completedAt).toLocaleString()}</span></span>
+            <span className="font-price-tag tabular-nums text-on-surface">{formatMoney(sale.totalMinor)}</span>
+          </button>)}
+    </div>
+    {receipt && <div className="mt-space-lg"><ReceiptPanel receipt={receipt} title="Reprint" businessName={businessName} printable /></div>}
+  </div>;
+}
+
+/** Owner employee management. `user_roles` is the authoritative assignment. */
+function EmployeesView({ session }: { session: SessionView }) {
+  const [directory, setDirectory] = useState<EmployeeDirectory | null>(null); const [error, setError] = useState<string | null>(null); const [notice, setNotice] = useState<string | null>(null);
+  const [username, setUsername] = useState(''); const [displayName, setDisplayName] = useState(''); const [pin, setPin] = useState(''); const [roleId, setRoleId] = useState('');
+  const refresh = useCallback(async () => { try { const next = await invoke<EmployeeDirectory>('list_employees'); setDirectory(next); setRoleId(current => current || next.roles.find(role => role.roleKey === 'CASHIER')?.id || next.roles[0]?.id || ''); setError(null); } catch (reason) { setError(errorText(reason)); } }, []);
+  useEffect(() => { void refresh(); }, [refresh]);
+  async function act(action: () => Promise<unknown>, success: string) { setError(null); setNotice(null); try { await action(); setNotice(success); await refresh(); } catch (reason) { setError(errorText(reason)); } }
+  async function addEmployee(event: FormEvent<HTMLFormElement>) { event.preventDefault(); await act(() => invoke('create_employee', { input: { username, displayName, pin, roleIds: roleId ? [roleId] : [] } }), `${displayName} can now sign in on this terminal.`); setUsername(''); setDisplayName(''); setPin(''); }
+  async function toggleActive(employee: Employee) { await act(() => invoke('update_employee', { input: { employeeId: employee.id, displayName: null, active: !employee.active } }), employee.active ? `${employee.displayName} deactivated and signed out.` : `${employee.displayName} reactivated.`); }
+  async function resetPin(employee: Employee) { const nextPin = window.prompt(`New PIN for ${employee.displayName} (4–12 digits)`); if (!nextPin) return; await act(() => invoke('reset_employee_pin', { input: { employeeId: employee.id, pin: nextPin } }), `PIN reset. ${employee.displayName} was signed out of all terminals.`); }
+  async function changeRole(employee: Employee, nextRoleId: string) { await act(() => invoke('set_employee_roles', { input: { employeeId: employee.id, roleIds: nextRoleId ? [nextRoleId] : [] } }), `Roles updated. ${employee.displayName} was signed out so the new authority applies.`); }
+  return <div className="mx-auto flex w-full max-w-6xl flex-col">
+    <header className="mb-space-lg"><p className="font-badge-label uppercase text-primary">People</p><h2 className="mt-1 font-headline-lg text-on-surface">Employees</h2></header>
+    {error && <p className="mb-space-md rounded-xl bg-error-container p-space-md font-body-md text-on-error-container shadow-sm" role="alert">{error}</p>}
+    {notice && <p className="mb-space-md rounded-xl bg-secondary-container p-space-md font-body-md text-on-secondary-container shadow-sm" role="status">{notice}</p>}
+    <form className="mb-space-lg grid grid-cols-1 gap-space-md rounded-xl border border-outline-variant/20 bg-surface-container-lowest p-space-lg shadow-sm md:grid-cols-5" onSubmit={addEmployee}>
+      <label className="flex flex-col"><span className="mb-2 font-body-sm font-medium text-on-surface-variant">Username</span><input value={username} onChange={event => setUsername(event.target.value)} required className="h-11 rounded-xl border border-outline-variant/30 bg-surface px-space-sm font-body-md text-on-surface outline-none focus:border-primary" /></label>
+      <label className="flex flex-col"><span className="mb-2 font-body-sm font-medium text-on-surface-variant">Display name</span><input value={displayName} onChange={event => setDisplayName(event.target.value)} required className="h-11 rounded-xl border border-outline-variant/30 bg-surface px-space-sm font-body-md text-on-surface outline-none focus:border-primary" /></label>
+      <label className="flex flex-col"><span className="mb-2 font-body-sm font-medium text-on-surface-variant">PIN</span><input value={pin} onChange={event => setPin(event.target.value)} type="password" inputMode="numeric" pattern="[0-9]{4,12}" required className="h-11 rounded-xl border border-outline-variant/30 bg-surface px-space-sm font-body-md text-on-surface outline-none focus:border-primary" /></label>
+      <label className="flex flex-col"><span className="mb-2 font-body-sm font-medium text-on-surface-variant">Role</span>
+        <select value={roleId} onChange={event => setRoleId(event.target.value)} className="h-11 rounded-xl border border-outline-variant/30 bg-surface px-space-sm font-body-md text-on-surface outline-none focus:border-primary">
+          {directory?.roles.map(role => <option key={role.id} value={role.id}>{role.name}</option>)}
+        </select></label>
+      <button className="mt-auto h-11 rounded-xl bg-primary font-body-lg text-on-primary transition-colors hover:bg-primary-fixed">Add employee</button>
+    </form>
+    <div className="overflow-hidden rounded-xl border border-outline-variant/20 bg-surface-container-lowest shadow-sm">
+      {!directory ? <div className="p-space-xl text-center font-body-md text-on-surface-variant">Loading employees…</div>
+        : directory.employees.map(employee => <div key={employee.id} className="flex flex-wrap items-center justify-between gap-space-md border-b border-outline-variant/10 px-space-lg py-space-md last:border-b-0">
+            <span className="flex flex-col"><span className="font-body-md text-on-surface">{employee.displayName} {employee.id === session.userId && <span className="font-body-sm text-on-surface-variant">(you)</span>}</span><span className="font-body-sm text-on-surface-variant">@{employee.username} · {employee.roles.map(role => role.name).join(', ') || 'No role'}{employee.active ? '' : ' · deactivated'}</span></span>
+            <span className="flex flex-wrap items-center gap-space-sm">
+              <select value={employee.roles[0]?.id ?? ''} onChange={event => void changeRole(employee, event.target.value)} className="h-10 rounded-xl border border-outline-variant/30 bg-surface px-space-sm font-body-sm text-on-surface">
+                <option value="">No role</option>
+                {directory.roles.map(role => <option key={role.id} value={role.id}>{role.name}</option>)}
+              </select>
+              <button onClick={() => void resetPin(employee)} className="h-10 rounded-xl border border-outline-variant/30 bg-surface-container px-space-md font-body-sm text-on-surface hover:bg-surface-container-highest">Reset PIN</button>
+              <button onClick={() => void toggleActive(employee)} className="h-10 rounded-xl border border-outline-variant/30 bg-surface-container px-space-md font-body-sm text-on-surface hover:bg-surface-container-highest">{employee.active ? 'Deactivate' : 'Reactivate'}</button>
+            </span>
+          </div>)}
+    </div>
+  </div>;
+}
 
 function TerminalClock() {
   const [now, setNow] = useState(() => new Date());
@@ -602,7 +731,7 @@ function AvailabilityForm({ snapshot, act }: { snapshot: CatalogueSnapshot; act:
 }
 
 type CartLine = { item: PosItem; quantity: number };
-function PosView() {
+function PosView({ session }: { session: SessionView }) {
   const [departmentFilter, setDepartmentFilter] = useState('');
   const [posTab, setPosTab] = useState<'sale' | 'history'>('sale');
   const [paymentExpanded, setPaymentExpanded] = useState(false);
@@ -860,8 +989,9 @@ function PosView() {
             </div>
             
             <div className="flex gap-space-md pt-space-md border-t border-outline-variant/20">
-              <button className="h-11 rounded-xl border border-outline-variant/30 bg-surface-container px-space-lg font-body-lg text-on-surface transition-colors hover:bg-surface-container-highest disabled:opacity-50" onClick={() => void reverseSale(false)} disabled={!refundReason.trim() || submitting}>Record refund</button>
-              <button className="h-11 rounded-xl bg-error px-space-lg font-body-lg text-on-error transition-opacity hover:opacity-90 disabled:opacity-50" onClick={() => void reverseSale(true)} disabled={!refundReason.trim() || submitting}>Void full sale</button>
+              {snapshot.canRefund && <button className="h-11 rounded-xl border border-outline-variant/30 bg-surface-container px-space-lg font-body-lg text-on-surface transition-colors hover:bg-surface-container-highest disabled:opacity-50" onClick={() => void reverseSale(false)} disabled={!refundReason.trim() || submitting}>Record refund</button>}
+              {snapshot.canVoid && <button className="h-11 rounded-xl bg-error px-space-lg font-body-lg text-on-error transition-opacity hover:opacity-90 disabled:opacity-50" onClick={() => void reverseSale(true)} disabled={!refundReason.trim() || submitting}>Void full sale</button>}
+              {!snapshot.canRefund && !snapshot.canVoid && <p className="font-body-sm text-on-surface-variant">Refunds and voids are handled by the business owner.</p>}
             </div>
           </div>
         </div>
@@ -901,13 +1031,13 @@ function ReceiptPanel({ receipt, title, businessName, printable = false }: { rec
   </section>; 
 }
 
-function OperationsView() {
+function OperationsView({ session }: { session: SessionView }) {
   const [snapshot, setSnapshot] = useState<OperationsSnapshot | null>(null); const [error, setError] = useState<string | null>(null); const [notice, setNotice] = useState<string | null>(null); const [openingCash, setOpeningCash] = useState('0.00'); const [actualCash, setActualCash] = useState(''); const [closeNotes, setCloseNotes] = useState(''); const [categoryName, setCategoryName] = useState(''); const [categoryId, setCategoryId] = useState(''); const [departmentId, setDepartmentId] = useState(''); const [paymentMethodId, setPaymentMethodId] = useState(''); const [amount, setAmount] = useState(''); const [description, setDescription] = useState(''); const [reference, setReference] = useState(''); const [expenseDate, setExpenseDate] = useState(new Date().toISOString().slice(0, 10));
   const refresh = useCallback(async () => { try { const next = await invoke<OperationsSnapshot>('get_operations_snapshot'); setSnapshot(next); setCategoryId(current => current || next.categories[0]?.id || ''); setDepartmentId(current => current || next.departments[0]?.id || ''); setPaymentMethodId(current => current || next.paymentMethods[0]?.id || ''); setError(null); } catch (reason) { setError(errorText(reason)); } }, []);
   useEffect(() => { void refresh(); }, [refresh]);
   async function act(action: () => Promise<unknown>, success: string) { setError(null); setNotice(null); try { await action(); setNotice(success); await refresh(); } catch (reason) { setError(errorText(reason)); } }
   async function openShift(event: FormEvent<HTMLFormElement>) { event.preventDefault(); await act(() => invoke('open_pos_shift', { input: { openingBalanceMinor: parseScaled(openingCash, 2), openedAt: new Date().toISOString() } }), 'Shift opened and ready for cash activity.'); }
-  async function closeShift(event: FormEvent<HTMLFormElement>) { event.preventDefault(); await act(() => invoke('close_current_shift', { input: { actualBalanceMinor: parseScaled(actualCash, 2), closedAt: new Date().toISOString(), notes: closeNotes || null } }), 'Shift closed and variance preserved.'); setActualCash(''); setCloseNotes(''); }
+  async function closeShift(event: FormEvent<HTMLFormElement>) { event.preventDefault(); const openShift = snapshot?.openShift; if (!openShift) return; const own = hasPermission(session, 'shifts.close_any'); await act(() => invoke(own ? 'close_any_shift' : 'close_own_shift', { input: own ? { shiftId: openShift.id, actualBalanceMinor: parseScaled(actualCash, 2), closedAt: new Date().toISOString(), notes: closeNotes || null } : { actualBalanceMinor: parseScaled(actualCash, 2), closedAt: new Date().toISOString(), notes: closeNotes || null } }), 'Shift closed and variance preserved.'); setActualCash(''); setCloseNotes(''); }
   async function addCategory(event: FormEvent<HTMLFormElement>) { event.preventDefault(); await act(() => invoke('create_expense_category', { name: categoryName }), `Expense category ${categoryName} created.`); setCategoryName(''); }
   async function addExpense(event: FormEvent<HTMLFormElement>) { event.preventDefault(); await act(() => invoke('record_operating_expense', { input: { departmentId: departmentId || null, categoryId, paymentMethodId: paymentMethodId || null, amountMinor: parseScaled(amount, 2), expenseDate, description, reference: reference || null, receiptImagePath: null, idempotencyKey: crypto.randomUUID() } }), 'Expense recorded and cash expectation updated when applicable.'); setAmount(''); setDescription(''); setReference(''); }
   async function voidExpense(expenseId: string) { const reason = window.prompt('Reason for voiding this expense?'); if (!reason?.trim()) return; await act(() => invoke('void_operating_expense', { input: { expenseId, occurredAt: new Date().toISOString(), reason } }), 'Expense voided without deleting its history.'); }
@@ -934,7 +1064,7 @@ function OperationsView() {
             <span className="font-badge-label uppercase text-on-surface-variant">Opening cash</span>
           </article>
           <article className="p-space-lg bg-surface-container-lowest rounded-xl border border-outline-variant/20 shadow-sm flex flex-col">
-            <span className="font-ticket-total text-on-surface mb-2">{formatMoney(snapshot.openShift.expectedBalanceMinor)}</span>
+            <span className="font-ticket-total text-on-surface mb-2">{snapshot.openShift.expectedBalanceMinor == null ? 'Hidden' : formatMoney(snapshot.openShift.expectedBalanceMinor)}</span>
             <span className="font-badge-label uppercase text-on-surface-variant">Expected cash now</span>
           </article>
           <article className="p-space-lg bg-surface-container-lowest rounded-xl border border-outline-variant/20 shadow-sm flex flex-col">
@@ -1117,7 +1247,7 @@ function OperationsView() {
                     </span>
                   </td>
                   <td className="px-space-lg py-space-md text-right text-on-surface font-medium">{formatMoney(item.openingBalanceMinor)}</td>
-                  <td className="px-space-lg py-space-md text-right text-on-surface font-medium">{formatMoney(item.expectedBalanceMinor)}</td>
+                  <td className="px-space-lg py-space-md text-right text-on-surface font-medium">{item.expectedBalanceMinor == null ? '—' : formatMoney(item.expectedBalanceMinor)}</td>
                   <td className="px-space-lg py-space-md text-right text-on-surface font-medium">{item.actualBalanceMinor == null ? '—' : formatMoney(item.actualBalanceMinor)}</td>
                   <td className={`px-space-lg py-space-md text-right font-medium ${(item.varianceMinor ?? 0) < 0 ? 'text-error' : (item.varianceMinor ?? 0) > 0 ? 'text-secondary' : 'text-on-surface'}`}>
                     {item.varianceMinor == null ? '—' : formatMoney(item.varianceMinor)}

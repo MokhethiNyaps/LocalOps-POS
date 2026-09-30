@@ -29,13 +29,12 @@ pub fn run() {
         .manage(db_state)
         .setup(|_app| Ok(()))
         .invoke_handler(tauri::generate_handler![
-            crate::commands::create_business,
-            crate::commands::list_businesses,
             crate::commands::update_trading_name,
             crate::commands::complete_initial_setup,
             crate::commands::login,
             crate::commands::logout,
             crate::commands::get_app_bootstrap,
+            crate::commands::get_session_capabilities,
             crate::catalogue_commands::get_catalogue_snapshot,
             crate::catalogue_commands::create_catalogue_category,
             crate::catalogue_commands::create_catalogue_unit,
@@ -51,12 +50,15 @@ pub fn run() {
             crate::inventory_commands::record_inventory_wastage,
             crate::inventory_commands::complete_inventory_stock_count,
             crate::sales_commands::get_pos_snapshot,
+            crate::sales_commands::get_own_current_shift,
+            crate::sales_commands::get_own_current_shift_sales,
             crate::sales_commands::open_pos_shift,
             crate::sales_commands::complete_pos_sale,
             crate::sales_commands::get_sale_receipt,
             crate::sales_commands::create_pos_refund,
             crate::operations_commands::get_operations_snapshot,
-            crate::operations_commands::close_current_shift,
+            crate::operations_commands::close_own_shift,
+            crate::operations_commands::close_any_shift,
             crate::operations_commands::create_expense_category,
             crate::operations_commands::record_operating_expense,
             crate::operations_commands::void_operating_expense,
@@ -65,6 +67,11 @@ pub fn run() {
             crate::safety_commands::get_safety_status,
             crate::safety_commands::create_manual_backup,
             crate::safety_commands::restore_local_backup,
+            crate::employee_commands::list_employees,
+            crate::employee_commands::create_employee,
+            crate::employee_commands::update_employee,
+            crate::employee_commands::reset_employee_pin,
+            crate::employee_commands::set_employee_roles,
         ])
         .run(tauri::generate_context!())
         .expect("error while running tauri application");
@@ -80,6 +87,7 @@ pub struct DbState {
 
 mod catalogue_commands;
 mod commands;
+mod employee_commands;
 mod inventory_commands;
 mod operations_commands;
 mod report_commands;

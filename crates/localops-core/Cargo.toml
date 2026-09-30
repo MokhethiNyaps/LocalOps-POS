@@ -14,5 +14,9 @@ argon2 = "0.5"
 rand_core = { version = "0.6", features = ["getrandom"] }
 chrono = "0.4"
 
+[features]
+# Exposes deterministic Owner/Cashier fixtures to downstream test builds.
+test-support = []
+
 [dev-dependencies]
 tempfile = "3"

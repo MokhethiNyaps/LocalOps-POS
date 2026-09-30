@@ -26,10 +26,23 @@ pub struct SetupResult {
     pub session_id: String,
 }
 
+/// True when first-run setup is still required. Once any business exists the
+/// pre-authentication setup command must be rejected.
+pub fn setup_required(connection: &Connection) -> Result<bool> {
+    let businesses: i64 =
+        connection.query_row("SELECT count(*) FROM businesses WHERE active = 1", [], |row| {
+            row.get(0)
+        })?;
+    Ok(businesses == 0)
+}
+
 pub fn complete_initial_setup(
     connection: &Connection,
     input: InitialSetup<'_>,
 ) -> Result<SetupResult> {
+    if !setup_required(connection)? {
+        return Err(crate::CoreError::SetupAlreadyCompleted);
+    }
     let transaction = connection.unchecked_transaction()?;
     let business_id = business::create_business(&transaction, input.business_name)?;
     let location_id = location::create_location(
@@ -62,10 +75,13 @@ pub fn complete_initial_setup(
         input.owner_display_name,
         input.owner_pin,
     )?;
-    let role_id = role::create_role(&transaction, &business_id, "Owner", true)?;
-    for permission in role::list_permissions(&transaction)? {
-        role::grant_permission(&transaction, &role_id, &permission.code, Some(&user_id))?;
-    }
+    // Deterministic OWNER and CASHIER system roles. Owner receives every
+    // permission known to this build, including permissions added by later
+    // migrations, so an upgrade never leaves the Owner without authority.
+    role::ensure_system_roles(&transaction, &business_id)?;
+    let role_id = role::find_role_by_key(&transaction, &business_id, role::OWNER_ROLE_KEY)?
+        .ok_or(crate::CoreError::RoleNotFound)?
+        .id;
     role::assign_role(&transaction, &user_id, &role_id, Some(&user_id))?;
     let active_session =
         session::start_session(&transaction, &business_id, &user_id, &terminal_id)?;
@@ -139,6 +155,51 @@ mod tests {
             )
             .unwrap();
         assert_eq!(facts, (1, 1, 1));
+    }
+
+    #[test]
+    fn seeds_owner_and_whitelist_cashier_system_roles() {
+        let database = open_memory_database().unwrap();
+        let result = complete_initial_setup(&database, setup_input("1234")).unwrap();
+        let owner = role::find_role_by_key(&database, &result.business_id, role::OWNER_ROLE_KEY)
+            .unwrap()
+            .unwrap();
+        assert_eq!(owner.id, result.role_id);
+        assert!(owner.system);
+        let cashier =
+            role::find_role_by_key(&database, &result.business_id, role::CASHIER_ROLE_KEY)
+                .unwrap()
+                .unwrap();
+        let granted: i64 = database
+            .query_row(
+                "SELECT count(*) FROM role_permissions WHERE role_id = ?1",
+                [&cashier.id],
+                |row| row.get(0),
+            )
+            .unwrap();
+        assert_eq!(granted, role::CASHIER_PERMISSIONS.len() as i64);
+        let owner_granted: i64 = database
+            .query_row(
+                "SELECT count(*) FROM role_permissions WHERE role_id = ?1",
+                [&owner.id],
+                |row| row.get(0),
+            )
+            .unwrap();
+        let all_permissions: i64 = database
+            .query_row("SELECT count(*) FROM permissions", [], |row| row.get(0))
+            .unwrap();
+        assert_eq!(owner_granted, all_permissions);
+    }
+
+    #[test]
+    fn rejects_initial_setup_once_a_business_exists() {
+        let database = open_memory_database().unwrap();
+        complete_initial_setup(&database, setup_input("1234")).unwrap();
+        assert!(!setup_required(&database).unwrap());
+        assert!(matches!(
+            complete_initial_setup(&database, setup_input("4321")),
+            Err(crate::CoreError::SetupAlreadyCompleted)
+        ));
     }
 
     #[test]

@@ -119,6 +119,7 @@ impl From<report::DashboardReport> for DashboardDto {
     }
 }
 
+/// `OWNER_OR_PERMISSION`. Requires `reports.view`.
 #[tauri::command]
 pub fn get_dashboard_report(
     state: State<'_, DbState>,
@@ -136,13 +137,14 @@ pub fn get_dashboard_report(
     .map_err(|error| error.to_string())
 }
 
+/// `OWNER_OR_PERMISSION`. Requires `reports.export`.
 #[tauri::command]
 pub fn export_dashboard_csv(
     state: State<'_, DbState>,
     range: ReportRange,
 ) -> Result<String, String> {
     let connection = state.connection.lock().map_err(|error| error.to_string())?;
-    let context = require_active_context(&connection, &state, Some("reports.view"))?;
+    let context = require_active_context(&connection, &state, Some("reports.export"))?;
     report::build_dashboard(
         &connection,
         &context.business_id,

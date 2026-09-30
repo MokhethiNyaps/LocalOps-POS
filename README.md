@@ -27,6 +27,8 @@ Where the Owner/Cashier specification deliberately changes existing access behav
 ## Documentation
 
 - [Owner/Cashier Access Control Specification — Revision 2](docs/LOCALOPS_OWNER_CASHIER_ACCESS_CONTROL_SPEC_V2.md) — normative implementation contract for the next feature
+- [User Manual](docs/USER-MANUAL.md) — how Owners and Cashiers actually use the shipped application
+- [Authorization Inventory](docs/localops-pos/AUTHORIZATION-INVENTORY.md) — every exposed command with its classification and required permission
 - [Master Architecture](docs/MASTER-ARCHITECTURE.md) — broader architecture and integrity principles
 - [Schema V1](docs/SCHEMA-V1.md) — existing schema reference; verify it against migrations and code
 - [Implementation Progress](docs/localops-pos/PROGRESS.md) — current implementation history and status
