@@ -300,6 +300,36 @@ pub fn recent_sales(
     Ok(rows)
 }
 
+/// A sale line reduced to the facts that authorization depends on.
+#[derive(Debug, Clone, Copy, PartialEq, Eq)]
+pub struct SaleLineScope<'a> {
+    pub department_id: &'a str,
+    pub discount_minor: i64,
+}
+
+/// Authorize a sale write before any money or stock is touched.
+///
+/// * `sales.create` and `payments.record` are both required.
+/// * Any non-zero line discount requires `sales.discount`.
+/// * Without `products.manage` every line must belong to the department of the
+///   authenticated session terminal, so a tampered `department_id` cannot sell
+///   another department's catalogue.
+pub fn authorize_sale_request(context: &AccessContext, lines: &[SaleLineScope<'_>]) -> Result<()> {
+    context.require_permission("sales.create")?;
+    context.require_permission("payments.record")?;
+    if lines.iter().any(|line| line.discount_minor != 0) {
+        context.require_permission("sales.discount")?;
+    }
+    if context.has_permission("products.manage") {
+        return Ok(());
+    }
+    let department_id = context.require_department()?;
+    if lines.iter().any(|line| line.department_id != department_id) {
+        return Err(CoreError::ScopeDenied);
+    }
+    Ok(())
+}
+
 #[cfg(test)]
 mod tests {
     use super::*;
@@ -557,5 +587,45 @@ mod tests {
         // The Owner keeps historical access.
         let owner = access::resolve(&database, &fixture.owner_session).unwrap();
         assert_eq!(recent_sales(&database, &owner, 25).unwrap().len(), 1);
+    }
+
+    #[test]
+    fn cashier_sale_authorization_rejects_discounts_and_foreign_departments() {
+        let database = open_memory_database().unwrap();
+        let fixture = access::fixtures::business(&database);
+        let (_, cashier_session) = access::fixtures::cashier(
+            &database,
+            &fixture.business_id,
+            &fixture.terminal_id,
+            "thabo",
+        )
+        .unwrap();
+        let cashier = access::resolve(&database, &cashier_session).unwrap();
+        let owner = access::resolve(&database, &fixture.owner_session).unwrap();
+        let plain = [SaleLineScope {
+            department_id: &fixture.department_id,
+            discount_minor: 0,
+        }];
+        let discounted = [SaleLineScope {
+            department_id: &fixture.department_id,
+            discount_minor: 1,
+        }];
+        let foreign = [SaleLineScope {
+            department_id: "another-department",
+            discount_minor: 0,
+        }];
+
+        assert!(authorize_sale_request(&cashier, &plain).is_ok());
+        assert!(matches!(
+            authorize_sale_request(&cashier, &discounted),
+            Err(CoreError::PermissionDenied(_))
+        ));
+        assert!(matches!(
+            authorize_sale_request(&cashier, &foreign),
+            Err(CoreError::ScopeDenied)
+        ));
+        // The Owner keeps the existing discount and cross-department behaviour.
+        assert!(authorize_sale_request(&owner, &discounted).is_ok());
+        assert!(authorize_sale_request(&owner, &foreign).is_ok());
     }
 }

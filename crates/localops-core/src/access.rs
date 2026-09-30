@@ -438,4 +438,137 @@ mod tests {
             Err(CoreError::SessionNotFound)
         ));
     }
+
+    #[test]
+    fn receipt_reprint_is_limited_to_the_cashiers_own_current_shift() {
+        let database = open_memory_database().unwrap();
+        let fixture = fixtures::business(&database);
+        let (cashier_id, cashier_session) =
+            fixtures::cashier(&database, &fixture.business_id, &fixture.terminal_id, "thabo")
+                .unwrap();
+        let cashier = resolve(&database, &cashier_session).unwrap();
+        let owner = resolve(&database, &fixture.owner_session).unwrap();
+        let shift = crate::shift::open_own_shift(
+            &database,
+            &fixture.business_id,
+            &fixture.terminal_id,
+            &cashier_id,
+            0,
+            "2026-01-01T08:00:00.000Z",
+        )
+        .unwrap();
+        let sale_id = seed_sale(
+            &database,
+            &fixture.business_id,
+            &fixture.department_id,
+            &fixture.terminal_id,
+            &shift.id,
+            &cashier_id,
+            "S-1",
+        );
+        let owner_sale = seed_sale(
+            &database,
+            &fixture.business_id,
+            &fixture.department_id,
+            &fixture.terminal_id,
+            &shift.id,
+            &fixture.owner_id,
+            "S-2",
+        );
+
+        // Own sale in the own current shift reprints.
+        assert_eq!(
+            authorize_receipt_reprint(&database, &cashier, &sale_id)
+                .unwrap()
+                .sale_id,
+            sale_id
+        );
+        // Another user's sale in the same shift does not.
+        assert!(matches!(
+            authorize_receipt_reprint(&database, &cashier, &owner_sale),
+            Err(CoreError::ScopeDenied)
+        ));
+        // The Owner may reprint any sale in the business.
+        assert!(authorize_receipt_reprint(&database, &owner, &owner_sale).is_ok());
+
+        // Once the shift is closed the Cashier can no longer reprint it.
+        crate::shift::close_shift(
+            &database,
+            &fixture.business_id,
+            &shift.id,
+            &cashier_id,
+            0,
+            "2026-01-01T17:00:00.000Z",
+            None,
+        )
+        .unwrap();
+        assert!(authorize_receipt_reprint(&database, &cashier, &sale_id).is_err());
+        assert!(authorize_receipt_reprint(&database, &owner, &sale_id).is_ok());
+    }
+
+    #[test]
+    fn the_session_terminal_determines_the_department_scope() {
+        let database = open_memory_database().unwrap();
+        let fixture = fixtures::business(&database);
+        let (restaurant_department, restaurant_terminal) =
+            fixtures::second_terminal(&database, &fixture.business_id, "Restaurant", "Kitchen Till")
+                .unwrap();
+        let (cashier_id, bar_session) =
+            fixtures::cashier(&database, &fixture.business_id, &fixture.terminal_id, "thabo")
+                .unwrap();
+        let bar = resolve(&database, &bar_session).unwrap();
+        assert_eq!(bar.department_id.as_deref(), Some(fixture.department_id.as_str()));
+        assert!(bar.require_same_terminal(&restaurant_terminal).is_err());
+        assert!(bar.require_same_department(&restaurant_department).is_err());
+
+        // Signing in again at another active terminal produces the new scope.
+        crate::session::end_session(&database, &bar_session, "LOGOUT").unwrap();
+        let next = crate::session::start_session(
+            &database,
+            &fixture.business_id,
+            &cashier_id,
+            &restaurant_terminal,
+        )
+        .unwrap();
+        let restaurant = resolve(&database, &next.id).unwrap();
+        assert_eq!(restaurant.terminal_id, restaurant_terminal);
+        assert_eq!(
+            restaurant.department_id.as_deref(),
+            Some(restaurant_department.as_str())
+        );
+    }
+
+    /// Insert a completed sale directly: these tests exercise authorization,
+    /// not the sale pipeline, which has its own tests.
+    fn seed_sale(
+        connection: &Connection,
+        business_id: &str,
+        department_id: &str,
+        terminal_id: &str,
+        shift_id: &str,
+        cashier_id: &str,
+        sale_number: &str,
+    ) -> String {
+        let id = uuid::Uuid::now_v7().to_string();
+        connection
+            .execute(
+                "INSERT INTO sales(id, business_id, department_id, terminal_id, shift_id,
+                    cashier_id, sale_number, status, subtotal_minor, discount_minor, tax_minor,
+                    total_minor, currency, completed_at, idempotency_key)
+                 VALUES(?1, ?2, ?3, ?4, ?5, ?6, ?7, 'COMPLETED', 1000, 0, 0, 1000, 'ZAR',
+                    '2026-01-01T09:00:00.000Z', ?8)",
+                (
+                    &id,
+                    business_id,
+                    department_id,
+                    terminal_id,
+                    shift_id,
+                    cashier_id,
+                    sale_number,
+                    &id,
+                ),
+            )
+            .unwrap();
+        id
+    }
 }

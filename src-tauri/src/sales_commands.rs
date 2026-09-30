@@ -357,30 +357,16 @@ pub fn complete_pos_sale(
     input: CompleteSaleInput,
 ) -> Result<SaleReceiptDto, String> {
     let connection = state.connection.lock().map_err(|error| error.to_string())?;
-    let context = require_active_context(&connection, &state, Some("sales.create"))?;
-    context
-        .require_permission("payments.record")
-        .map_err(|error| error.to_string())?;
-    if input
+    let context = require_active_context(&connection, &state, None)?;
+    let scopes = input
         .lines
         .iter()
-        .any(|line| line.discount_minor != 0)
-        && !context.has_permission("sales.discount")
-    {
-        return Err("Permission denied: sales.discount".to_owned());
-    }
-    let session_department = context
-        .require_department()
-        .map_err(|error| error.to_string())?
-        .to_owned();
-    if !context.has_permission("products.manage")
-        && input
-            .lines
-            .iter()
-            .any(|line| line.department_id != session_department)
-    {
-        return Err("Permission denied: items must belong to this terminal's department".to_owned());
-    }
+        .map(|line| cashier::SaleLineScope {
+            department_id: &line.department_id,
+            discount_minor: line.discount_minor,
+        })
+        .collect::<Vec<_>>();
+    cashier::authorize_sale_request(&context, &scopes).map_err(|error| error.to_string())?;
     let open_shift = localops_core::access::require_current_own_shift(&connection, &context)
         .map_err(|_| "Open your own shift before completing a sale".to_owned())?;
     let lines = input
