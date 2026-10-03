@@ -1,9 +1,9 @@
 use std::collections::{BTreeMap, BTreeSet};
 
-use rusqlite::{Connection, OptionalExtension, params};
+use rusqlite::{params, Connection, OptionalExtension};
 use uuid::Uuid;
 
-use crate::{CoreError, Result, audit, inventory, money};
+use crate::{audit, inventory, money, CoreError, Result};
 
 #[derive(Debug, Clone, Copy)]
 pub struct RefundItemInput<'a> {
@@ -152,7 +152,7 @@ pub fn create_refund(connection: &Connection, input: CreateRefund<'_>) -> Result
         .map(str::to_owned)
         .unwrap_or_else(|| {
             let prefix = if input.void_sale { "V" } else { "R" };
-            format!("{prefix}-{}", &refund_id[..8])
+            format!("{prefix}-{refund_id}")
         });
     let correlation_id = Uuid::now_v7().to_string();
     let mut total_minor = 0_i64;
@@ -705,6 +705,45 @@ mod tests {
             shift_id,
             product_id,
             sale,
+        }
+    }
+
+    #[test]
+    fn consecutive_refunds_receive_unique_automatic_numbers() {
+        let fixture = fixture();
+        let items = [RefundItemInput {
+            sale_item_id: &fixture.sale.lines[0].id,
+            quantity_micros: 1_000_000,
+            restore_stock: true,
+        }];
+        let payments = [RefundPaymentInput {
+            payment_id: &fixture.sale.payments[1].id,
+            amount_minor: 2_500,
+            reference: None,
+        }];
+        let mut previous = None;
+        for key in ["consecutive-refund-1", "consecutive-refund-2"] {
+            let receipt = create_refund(
+                &fixture.database,
+                CreateRefund {
+                    business_id: &fixture.business_id,
+                    sale_id: &fixture.sale.id,
+                    idempotency_key: key,
+                    refund_number: None,
+                    shift_id: &fixture.shift_id,
+                    terminal_id: &fixture.terminal_id,
+                    user_id: &fixture.user_id,
+                    reason: "Customer return",
+                    occurred_at: "2026-09-23T10:00:00.000Z",
+                    void_sale: false,
+                    items: &items,
+                    payments: &payments,
+                },
+            )
+            .unwrap();
+            assert_eq!(receipt.refund_number, format!("R-{}", receipt.id));
+            assert_ne!(previous.as_ref(), Some(&receipt.refund_number));
+            previous = Some(receipt.refund_number);
         }
     }
 

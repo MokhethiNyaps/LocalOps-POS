@@ -1,9 +1,9 @@
 use std::collections::{BTreeMap, BTreeSet};
 
-use rusqlite::{Connection, OptionalExtension, params};
+use rusqlite::{params, Connection, OptionalExtension};
 use uuid::Uuid;
 
-use crate::{CoreError, Result, audit, inventory, money, recipe};
+use crate::{audit, inventory, money, recipe, CoreError, Result};
 
 #[derive(Debug, Clone, Copy)]
 pub struct SaleLineInput<'a> {
@@ -168,7 +168,7 @@ pub fn complete_sale(connection: &Connection, input: CompleteSale<'_>) -> Result
         .map(str::trim)
         .filter(|value| !value.is_empty())
         .map(str::to_owned)
-        .unwrap_or_else(|| format!("S-{}", &sale_id[..8]));
+        .unwrap_or_else(|| format!("S-{sale_id}"));
     let correlation_id = Uuid::now_v7().to_string();
     let mut prepared = Vec::with_capacity(input.lines.len());
     let mut effects: BTreeMap<(String, String, String), i64> = BTreeMap::new();
@@ -827,6 +827,45 @@ mod tests {
             shampoo,
             cash,
             card,
+        }
+    }
+
+    #[test]
+    fn consecutive_sales_receive_unique_automatic_receipt_numbers() {
+        let fixture = fixture();
+        let lines = [SaleLineInput {
+            sellable_id: &fixture.lager,
+            department_id: &fixture.department_id,
+            quantity_micros: 1_000_000,
+            discount_minor: 0,
+        }];
+        let payments = [PaymentInput {
+            method_id: &fixture.cash,
+            amount_minor: 2_500,
+            tendered_minor: Some(2_500),
+            reference: None,
+        }];
+        let mut numbers = BTreeSet::new();
+        for key in ["consecutive-sale-1", "consecutive-sale-2"] {
+            let receipt = complete_sale(
+                &fixture.database,
+                CompleteSale {
+                    business_id: &fixture.business_id,
+                    idempotency_key: key,
+                    sale_number: None,
+                    terminal_id: &fixture.terminal_id,
+                    shift_id: &fixture.shift_id,
+                    cashier_id: &fixture.user_id,
+                    customer_id: None,
+                    completed_at: "2026-09-23T10:00:00.000Z",
+                    notes: None,
+                    lines: &lines,
+                    payments: &payments,
+                },
+            )
+            .unwrap();
+            assert_eq!(receipt.sale_number, format!("S-{}", receipt.id));
+            assert!(numbers.insert(receipt.sale_number));
         }
     }
 
