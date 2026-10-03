@@ -319,7 +319,7 @@ function Workspace({ session, onLogout }: { session: SessionView; onLogout: () =
           {notice && <p className="mb-space-md rounded-xl bg-secondary-container p-space-md font-body-md text-on-secondary-container shadow-sm" role="status">{notice}</p>}
           {!snapshot
             ? <div className="rounded-xl border border-outline-variant/20 bg-surface-container-lowest p-space-xl font-body-md text-on-surface-variant shadow-sm">{mayManageCatalogue ? 'Loading local catalogue…' : 'You do not have access to this section.'}</div>
-            : view === 'items' ? <ItemsView snapshot={snapshot} act={act} /> : <ConfigurationView snapshot={snapshot} act={act} />}
+            : view === 'items' ? <ItemsView snapshot={snapshot} act={act} /> : <ConfigurationView snapshot={snapshot} act={act} session={session} />}
         </div>}
       </main>
     </div>
@@ -434,9 +434,10 @@ function TerminalClock() {
 }
 
 function ItemsView({ snapshot, act }: { snapshot: CatalogueSnapshot; act: Act }) {
+  const [minimumStock, setMinimumStock] = useState('0');
   const [kind, setKind] = useState<'PRODUCT' | 'SERVICE'>('PRODUCT'); const [name, setName] = useState(''); const [price, setPrice] = useState(''); const [cost, setCost] = useState(''); const [barcode, setBarcode] = useState(''); const [sku, setSku] = useState(''); const [productCode, setProductCode] = useState(''); const [categoryId, setCategoryId] = useState(''); const [unitId, setUnitId] = useState(snapshot.units[0]?.id ?? ''); const [duration, setDuration] = useState(''); const [taxable, setTaxable] = useState(true); const [trackStock, setTrackStock] = useState(true);
   useEffect(() => { if (!unitId && snapshot.units[0]) setUnitId(snapshot.units[0].id); }, [snapshot.units, unitId]);
-  async function submit(event: FormEvent<HTMLFormElement>) { event.preventDefault(); await act(() => { const input = kind === 'PRODUCT' ? { name, priceMinor: parseScaled(price, 2), categoryId: categoryId || null, taxable, baseUnitId: unitId, costMinor: parseScaled(cost || '0', 2), trackStock, minimumQuantityMicros: 0, barcode: barcode || null, sku: sku || null, productCode: productCode || null } : { name, priceMinor: parseScaled(price, 2), categoryId: categoryId || null, taxable, durationMinutes: duration ? Number(duration) : null }; return invoke(kind === 'PRODUCT' ? 'create_catalogue_product' : 'create_catalogue_service', { input }); }, `${name} added to the catalogue.`); setName(''); setPrice(''); setCost(''); setBarcode(''); setSku(''); setProductCode(''); setDuration(''); }
+  async function submit(event: FormEvent<HTMLFormElement>) { event.preventDefault(); await act(() => { const input = kind === 'PRODUCT' ? { name, priceMinor: parseScaled(price, 2), categoryId: categoryId || null, taxable, baseUnitId: unitId, costMinor: parseScaled(cost || '0', 2), trackStock, minimumQuantityMicros: parseScaled(minimumStock, 6), barcode: barcode || null, sku: sku || null, productCode: productCode || null } : { name, priceMinor: parseScaled(price, 2), categoryId: categoryId || null, taxable, durationMinutes: duration ? Number(duration) : null }; return invoke(kind === 'PRODUCT' ? 'create_catalogue_product' : 'create_catalogue_service', { input }); }, `${name} added to the catalogue.`); setName(''); setPrice(''); setCost(''); setBarcode(''); setSku(''); setProductCode(''); setDuration(''); setMinimumStock('0'); }
   return <div className="flex flex-col gap-space-lg">
     <div className="grid grid-cols-1 gap-space-md md:grid-cols-3">
       <div className="flex flex-col items-center justify-center rounded-xl border border-outline-variant/20 bg-surface-container-lowest p-space-lg text-center shadow-sm">
@@ -503,6 +504,7 @@ function ItemsView({ snapshot, act }: { snapshot: CatalogueSnapshot; act: Act })
             <span className="block font-body-sm font-medium text-on-surface-variant mb-2">Product code (optional)</span>
             <input value={productCode} onChange={event => setProductCode(event.target.value)} className="h-11 w-full rounded-xl border border-outline-variant/30 bg-surface px-space-sm font-body-md text-on-surface outline-none transition-colors focus:border-primary focus:ring-1 focus:ring-primary" />
           </label>
+          <label className="block"><span className="mb-2 block font-body-sm font-medium text-on-surface-variant">Minimum stock</span><input value={minimumStock} onChange={event => setMinimumStock(event.target.value)} inputMode="decimal" required className="h-11 w-full rounded-lg border border-outline-variant/30 bg-surface px-space-sm font-body-md text-on-surface" /></label>
           <div className="flex items-center"><Toggle label="Track stock" checked={trackStock} onChange={setTrackStock} /></div>
         </> : <label className="w-full block">
           <span className="block font-body-sm font-medium text-on-surface-variant mb-2">Duration (minutes)</span>
@@ -548,7 +550,28 @@ function ItemsView({ snapshot, act }: { snapshot: CatalogueSnapshot; act: Act })
   </div>;
 }
 
-function ConfigurationView({ snapshot, act }: { snapshot: CatalogueSnapshot; act: Act }) { return <div className="grid grid-cols-1 md:grid-cols-2 lg:grid-cols-3 xl:grid-cols-4 gap-space-md items-start"><CategoryForm snapshot={snapshot} act={act} /><UnitForm act={act} /><PackagingForm snapshot={snapshot} act={act} /><RecipeForm snapshot={snapshot} act={act} /><AvailabilityForm snapshot={snapshot} act={act} /></div>; }
+function ConfigurationView({ snapshot, act, session }: { snapshot: CatalogueSnapshot; act: Act; session: SessionView }) { return <div className="grid grid-cols-1 md:grid-cols-2 lg:grid-cols-3 xl:grid-cols-4 gap-space-md items-start">{hasSystemRole(session, 'OWNER') && <DepartmentTerminalForm act={act} />}<CategoryForm snapshot={snapshot} act={act} /><UnitForm act={act} /><PackagingForm snapshot={snapshot} act={act} /><RecipeForm snapshot={snapshot} act={act} /><AvailabilityForm snapshot={snapshot} act={act} /></div>; }
+
+function DepartmentTerminalForm({ act }: { act: Act }) {
+  const [locations, setLocations] = useState<{ id: string; name: string }[]>([]);
+  const [name, setName] = useState(''); const [terminalName, setTerminalName] = useState(''); const [locationId, setLocationId] = useState('');
+  const [error, setError] = useState<string | null>(null); const [submitting, setSubmitting] = useState(false);
+  useEffect(() => { void invoke<{ id: string; name: string }[]>('get_department_stock_locations').then(values => { setLocations(values); setLocationId(values[0]?.id ?? ''); }).catch(reason => setError(errorText(reason))); }, []);
+  async function submit(event: FormEvent<HTMLFormElement>) {
+    event.preventDefault(); setSubmitting(true); setError(null);
+    try {
+      await act(async () => { await invoke('create_department_terminal', { input: { name, locationId, terminalName } }); setName(''); setTerminalName(''); }, `Department ${name} and terminal ${terminalName} created.`);
+    } finally { setSubmitting(false); }
+  }
+  return <form onSubmit={submit} className="flex flex-col gap-space-md rounded-lg border border-outline-variant/20 bg-surface-container-lowest p-space-lg">
+    <h3 className="font-headline-sm text-on-surface">Departments &amp; tills</h3>
+    <label className="block"><span className="mb-2 block font-body-sm text-on-surface-variant">Department name</span><input required value={name} onChange={event => setName(event.target.value)} className="h-11 w-full rounded-lg border border-outline-variant/30 bg-surface px-space-sm text-on-surface" /></label>
+    <label className="block"><span className="mb-2 block font-body-sm text-on-surface-variant">Terminal name</span><input required value={terminalName} onChange={event => setTerminalName(event.target.value)} className="h-11 w-full rounded-lg border border-outline-variant/30 bg-surface px-space-sm text-on-surface" /></label>
+    <label className="block"><span className="mb-2 block font-body-sm text-on-surface-variant">Stock location</span><select required value={locationId} onChange={event => setLocationId(event.target.value)} className="h-11 w-full rounded-lg border border-outline-variant/30 bg-surface px-space-sm text-on-surface"><option value="">Choose location</option>{locations.map(value => <option key={value.id} value={value.id}>{value.name}</option>)}</select></label>
+    <button disabled={submitting || !locations.length} className="flex h-11 items-center justify-center gap-2 rounded-lg bg-primary text-on-primary disabled:opacity-50"><span className="material-symbols-outlined" aria-hidden="true">add</span>{submitting ? 'Adding...' : 'Add department & till'}</button>
+    {error && <p role="alert" className="text-error">{error}</p>}
+  </form>;
+}
 
 function CategoryForm({ snapshot, act }: { snapshot: CatalogueSnapshot; act: Act }) { 
   const [name, setName] = useState(''); const [parentId, setParentId] = useState(''); 

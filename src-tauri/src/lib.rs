@@ -59,6 +59,8 @@ pub fn run() {
             crate::commands::logout,
             crate::commands::get_app_bootstrap,
             crate::commands::get_session_capabilities,
+            crate::department_commands::get_department_stock_locations,
+            crate::department_commands::create_department_terminal,
             crate::catalogue_commands::get_catalogue_snapshot,
             crate::catalogue_commands::create_catalogue_category,
             crate::catalogue_commands::create_catalogue_unit,
@@ -111,6 +113,7 @@ pub struct DbState {
 
 mod catalogue_commands;
 mod commands;
+mod department_commands;
 mod employee_commands;
 mod inventory_commands;
 mod operations_commands;

@@ -36,6 +36,8 @@ Section 31 (command classification) and Section 42 (authorization review table) 
 | `logout` | session | `AUTHENTICATED_GENERAL` | none | Own session |
 | `get_session_capabilities` | new | `AUTHENTICATED_GENERAL` | none | Own session identity, permissions, role keys |
 | `get_catalogue_snapshot` | session only (cost-bearing) | `OWNER_OR_PERMISSION` | `products.manage` | Cost fields only with `products.cost.view` |
+| `get_department_stock_locations` | new | `OWNER_ONLY` | `departments.manage` | Active stock locations in the session business |
+| `create_department_terminal` | new | `OWNER_ONLY` | `departments.manage`, `terminals.manage` | Creates one department, till and default stock link atomically; location must belong to the session business |
 | `create_catalogue_*`, `replace_catalogue_recipe`, `set_catalogue_availability` | `products.manage` | `OWNER_OR_PERMISSION` | `products.manage` | unchanged |
 | `get_inventory_snapshot` | session only | `OWNER_OR_PERMISSION` | `inventory.quantity.view` | Costs/valuation only with `inventory.value.view`; suppliers only with `suppliers.manage` |
 | `create_inventory_supplier` | `inventory.manage` | `OWNER_OR_PERMISSION` | `suppliers.manage` | unchanged |

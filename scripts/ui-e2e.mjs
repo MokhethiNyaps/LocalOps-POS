@@ -78,6 +78,7 @@ async function step(name, action) {
 async function login(username, pin) {
   await see('Sign in to this terminal');
   await driver.wait(async () => (await driver.findElements(By.css('form input'))).length === 2, 15000);
+  await choose('Terminal', 'UI Till');
   await fill('Username', username); await fill('PIN', pin); await click('Sign in');
   await see('Point of Sale');
 }
@@ -104,6 +105,14 @@ try {
     await click('Setup tools');
     await fill('Name', 'Drinks', form('Categories')); await click('Add category', form('Categories')); await status('Category Drinks created.');
     await fill('Code', 'EA', form('Units')); await fill('Name', 'Each', form('Units')); await click('Add unit', form('Units')); await status('Unit EA created.');
+  });
+  await step('Owner creates Food and Car Wash departments and their tills through setup tools', async () => {
+    for (const [name, terminal] of [['Food', 'Kitchen Till'], ['Car Wash', 'Wash Bay Till']]) {
+      await fill('Department name', name, form('Departments & tills')); await fill('Terminal name', terminal, form('Departments & tills')); await choose('Stock location', 'Main Store', form('Departments & tills')); await click('Add department & till', form('Departments & tills')); await status(`Department ${name} and terminal ${terminal} created.`);
+    }
+    assert.equal(query('SELECT count(*) AS n FROM departments')[0].n, 3);
+    assert.equal(query('SELECT count(*) AS n FROM terminals')[0].n, 3);
+    assert.equal(query('SELECT count(*) AS n FROM department_locations WHERE is_default=1')[0].n, 3);
   });
   await step('Required catalogue fields prevent empty submissions', async () => {
     await click('Catalogue');

@@ -38,6 +38,32 @@ pub fn create_department(
     Ok(id)
 }
 
+pub fn create_department_terminal(
+    connection: &Connection,
+    business_id: &str,
+    name: &str,
+    location_id: &str,
+    terminal_name: &str,
+) -> Result<(String, String)> {
+    let transaction = connection.unchecked_transaction()?;
+    let department_id = create_department(&transaction, business_id, name, None)?;
+    let terminal_id = crate::terminal::create_terminal_with_identity(
+        &transaction,
+        business_id,
+        Some(&department_id),
+        Some(location_id),
+        terminal_name,
+        None,
+        &Uuid::now_v7().to_string(),
+    )?;
+    transaction.execute(
+        "INSERT INTO department_locations(department_id, location_id, is_default) VALUES(?1, ?2, 1)",
+        (&department_id, location_id),
+    )?;
+    transaction.commit()?;
+    Ok((department_id, terminal_id))
+}
+
 /// Get a department by ID
 pub fn get_department(connection: &Connection, id: &str) -> Result<Option<Department>> {
     let mut stmt = connection
@@ -154,6 +180,54 @@ pub fn list_department_locations(
 mod tests {
     use super::*;
     use crate::{business, location, open_memory_database};
+
+    #[test]
+    fn creates_department_terminal_and_default_stock_location_together() {
+        let database = open_memory_database().unwrap();
+        let business_id = business::create_business(&database, "Demo").unwrap();
+        let location_id =
+            location::create_location(&database, &business_id, "Main Store", None).unwrap();
+        let (department_id, terminal_id) = create_department_terminal(
+            &database,
+            &business_id,
+            "Food",
+            &location_id,
+            "Kitchen Till",
+        )
+        .unwrap();
+        let terminal = crate::terminal::get_terminal(&database, &terminal_id)
+            .unwrap()
+            .unwrap();
+        assert_eq!(terminal.department_id, Some(department_id.clone()));
+        assert_eq!(terminal.location_id, Some(location_id.clone()));
+        let locations = list_department_locations(&database, &department_id).unwrap();
+        assert_eq!(locations.len(), 1);
+        assert_eq!(locations[0].location_id, location_id);
+        assert!(locations[0].is_default);
+    }
+
+    #[test]
+    fn invalid_or_foreign_terminal_details_leave_no_partial_department() {
+        let database = open_memory_database().unwrap();
+        let business_id = business::create_business(&database, "Demo").unwrap();
+        let other_business = business::create_business(&database, "Other").unwrap();
+        let local = location::create_location(&database, &business_id, "Store", None).unwrap();
+        let foreign =
+            location::create_location(&database, &other_business, "Other Store", None).unwrap();
+        for (location_id, terminal_name) in [(&foreign, "Till"), (&local, " ")] {
+            assert!(create_department_terminal(
+                &database,
+                &business_id,
+                "Food",
+                location_id,
+                terminal_name
+            )
+            .is_err());
+            assert!(list_departments(&database, &business_id)
+                .unwrap()
+                .is_empty());
+        }
+    }
 
     #[test]
     fn creates_department() {

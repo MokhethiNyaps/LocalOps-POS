@@ -5,6 +5,7 @@
   "type": "module",
   "scripts": {
     "test:ui": "node scripts/ui-e2e.mjs",
+    "demo:ui": "node scripts/client-demo.mjs",
     "build:ui-test": "node scripts/build-ui-test.mjs",
     "dev": "vite --host 0.0.0.0",
     "build": "tsc && vite build",
