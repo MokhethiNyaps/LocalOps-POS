@@ -1,0 +1,12 @@
+{
+  "identifier": "za.co.localops.pos.e2e",
+  "app": {
+    "windows": [{
+      "title": "LocalOps POS - UI Test",
+      "width": 1280,
+      "height": 900,
+      "minWidth": 1024,
+      "minHeight": 680
+    }]
+  }
+}

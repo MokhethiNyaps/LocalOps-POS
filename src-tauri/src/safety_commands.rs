@@ -47,7 +47,7 @@ pub struct SafetyStatusDto {
 pub fn get_safety_status(state: State<'_, DbState>) -> Result<SafetyStatusDto, String> {
     let connection = state.connection.lock().map_err(|error| error.to_string())?;
     let context = require_active_context(&connection, &state, Some("backups.manage"))?;
-    let paths = bootstrap::AppPaths::windows_default().map_err(|error| error.to_string())?;
+    let paths = crate::app_paths().map_err(|error| error.to_string())?;
     let status = safety::inspect(&connection, &context.business_id, &paths.backups)
         .map_err(|error| error.to_string())?;
     let healthy = safety::is_healthy(&status);
@@ -74,7 +74,7 @@ pub fn get_safety_status(state: State<'_, DbState>) -> Result<SafetyStatusDto, S
 pub fn create_manual_backup(state: State<'_, DbState>) -> Result<BackupDto, String> {
     let connection = state.connection.lock().map_err(|error| error.to_string())?;
     require_active_context(&connection, &state, Some("backups.manage"))?;
-    let paths = bootstrap::AppPaths::windows_default().map_err(|error| error.to_string())?;
+    let paths = crate::app_paths().map_err(|error| error.to_string())?;
     backup::create_backup(&connection, &paths.backups, "manual")
         .map(Into::into)
         .map_err(|error| error.to_string())
@@ -89,7 +89,7 @@ pub fn restore_local_backup(
 ) -> Result<BackupDto, String> {
     let mut connection = state.connection.lock().map_err(|error| error.to_string())?;
     require_owner(&connection, &state, "backups.manage")?;
-    let paths = bootstrap::AppPaths::windows_default().map_err(|error| error.to_string())?;
+    let paths = crate::app_paths().map_err(|error| error.to_string())?;
     let restored = backup::restore_backup(&mut connection, &paths.backups, &filename)
         .map_err(|error| error.to_string())?;
     *state

@@ -1,8 +1,32 @@
 #[cfg_attr(mobile, tauri::mobile_entry_point)]
 use rusqlite::Connection;
+
+pub(crate) fn app_paths() -> localops_core::Result<localops_core::bootstrap::AppPaths> {
+    #[cfg(feature = "e2e")]
+    {
+        let directory = std::env::var_os("LOCALOPS_E2E_DATA_DIR").ok_or_else(|| {
+            std::io::Error::new(
+                std::io::ErrorKind::InvalidInput,
+                "E2E data directory is required",
+            )
+        })?;
+        let directory = std::path::PathBuf::from(directory);
+        if !directory.is_absolute() {
+            return Err(std::io::Error::new(
+                std::io::ErrorKind::InvalidInput,
+                "E2E data directory must be absolute",
+            )
+            .into());
+        }
+        Ok(localops_core::bootstrap::AppPaths::from_data_dir(directory))
+    }
+    #[cfg(not(feature = "e2e"))]
+    localops_core::bootstrap::AppPaths::windows_default()
+}
+
 pub fn run() {
     // Determine application data paths (Windows default location)
-    let paths = match localops_core::bootstrap::AppPaths::windows_default() {
+    let paths = match app_paths() {
         Ok(p) => p,
         Err(e) => {
             eprintln!("Failed to locate app data directory: {}", e);
