@@ -1,5 +1,7 @@
 # LocalOps POS QA Report
 
+Historical report from September 30. The seeded-data cleanup and subsequent real Tauri UI tests are documented in [the October 1 WebDriver report](LOCALOPS_UI_WEBDRIVER_QA_REPORT.md).
+
 ## Test Environment
 
 - Date: 2026-09-30
